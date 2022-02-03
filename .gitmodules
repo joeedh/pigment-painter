@@ -1,0 +1,6 @@
+[submodule "path.ux"]
+	path = path.ux
+	url = ./scripts/path.ux
+[submodule "scripts/path.ux"]
+	path = scripts/path.ux
+	url = https://github.com/joeedh/path.ux.git
