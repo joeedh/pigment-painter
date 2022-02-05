@@ -83,7 +83,15 @@ export class CanvasEditor extends simple.Editor {
     this.addEventListener("mousemove", (e) => this.on_mousemove(e));
     this.addEventListener("mouseup", (e) => this.on_mouseup(e));
 
+    this.addEventListener("blur", () => {
+      this.mdown = false;
+    });
+
     this.flagRedraw();
+
+    let strip = this.header.row();
+    strip.useIcons(true);
+    strip.prop("canvas.brush.tool");
 
     this.header.prop("canvas.brush.radius");
     this.header.prop("canvas.brush.strength");
@@ -97,6 +105,12 @@ export class CanvasEditor extends simple.Editor {
     tab.prop("canvas.brush.strength");
     tab.prop("canvas.brush.color");
     tab.prop("canvas.brush.spacing");
+
+    tab.useIcons(true);
+    tab.row().prop("canvas.brush.tool");
+    tab.useIcons(false);
+    tab.prop("canvas.brush.flag[ACCUMULATE]");
+
 
     let names = ["C", "M", "Y", "K"];
 
@@ -123,18 +137,34 @@ export class CanvasEditor extends simple.Editor {
     ]);
   }
 
-  execDot(x1, y1, t) {
+  execDot(x1, y1, dx, dy, t) {
     let r = this.ctx.canvas.brush.radius*devicePixelRatio;
     let dimen = this.ctx.canvas.dimen;
 
-    if (x1 < r*2 || y1 < r*2 || x1 > dimen+r*2 || y1 > dimen+r*2) {
-      return;
+    if (x1 < -r*2 || y1 < -r*2 || x1 > dimen+r*2 || y1 > dimen+r*2) {
+      //return;
     }
 
-    this.ctx.canvas.execDot(x1, y1, t);
+    this.ctx.canvas.execDot(x1, y1, dx, dy, t);
+  }
+
+  uiHasEvents(e) {
+    if (this.ctx && this.ctx.screen) {
+      let elem = this.ctx.screen.pickElement(e.x, e.y);
+      //console.log(elem.id);
+      if (elem !== this) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   on_mousedown(e) {
+    if (this.uiHasEvents(e)) {
+      return;
+    }
+
     this.mpos.load(this.getLocalMouse(e.x, e.y));
     this.last_mpos.load(this.mpos);
     this.last_stroke_mpos.load(this.mpos);
@@ -142,7 +172,8 @@ export class CanvasEditor extends simple.Editor {
     this.stroke_t = this.last_stroke_t = 0.0;
     this.mdown = e.button === 0;
 
-    this.execDot(this.mpos[0], this.mpos[1], 0.0);
+    this.ctx.canvas.beginStroke();
+    this.execDot(this.mpos[0], this.mpos[1], 0.0, 0.0, 0.0);
     this.flagRedraw();
   }
 
@@ -164,25 +195,34 @@ export class CanvasEditor extends simple.Editor {
       let brush = this.ctx.canvas.brush;
       let r = brush.radius*UIBase.getDPI();
 
-      let dis = this.mpos.vectorDistance(this.last_stroke_mpos)/(2.0*r);
+      let dis = this.mpos.vectorDistance(this.last_mpos)/r;
       this.stroke_t += dis;
 
-      if (this.stroke_t - this.last_stroke_t > brush.spacing) {
+      if (this.stroke_t - this.last_stroke_t >= brush.spacing) {
+        let dx = this.mpos[0] - this.last_stroke_mpos[0];
+        let dy = this.mpos[1] - this.last_stroke_mpos[1];
+
         let steps = (this.stroke_t - this.last_stroke_t)/brush.spacing;
+        steps = Math.floor(steps + 0.001);
+
         let dt = 1.0/steps;
         let t = dt;
+
+        dx /= steps;
+        dy /= steps;
 
         for (let i = 0; i < steps; i++) {
           let mpos = new Vector2(this.last_stroke_mpos);
           mpos.interp(this.mpos, t);
 
-          this.execDot(mpos[0], mpos[1], this.last_stroke_t);
+          this.execDot(mpos[0], mpos[1], dx, dy, this.last_stroke_t);
 
           this.last_stroke_t += brush.spacing;
           this.flagRedraw();
           t += dt;
         }
 
+        this.last_stroke_t = this.stroke_t;
         this.last_stroke_mpos.load(this.mpos);
       }
     }

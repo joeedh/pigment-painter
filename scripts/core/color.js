@@ -11,9 +11,16 @@ export const ColorSpaces = {
 
 //very crappy palette generator (it excludes purple, purple is evil!)
 
-let rgb_to_hsv_rets = new util.cachering(() => [0, 0, 0], 64);
+let rgb_to_hsv_rets = new util.cachering(() => [0, 0, 0], 512);
 
-export function rgb_to_hsv(r, g, b) {
+export function rgb_to_hsv(r, g, b, do_linear = true) {
+  if (do_linear) {
+    let rgb = rgb_to_linear(r, g, b);
+    r = rgb[0];
+    g = rgb[1];
+    b = rgb[2];
+  }
+
   let computedH = 0;
   let computedS = 0;
   let computedV = 0;
@@ -33,7 +40,7 @@ export function rgb_to_hsv(r, g, b) {
   let maxRGB = Math.max(r, Math.max(g, b));
 
   // Black-gray-white
-  if (minRGB == maxRGB) {
+  if (minRGB === maxRGB) {
     computedV = minRGB;
 
     let ret = rgb_to_hsv_rets.next();
@@ -42,8 +49,8 @@ export function rgb_to_hsv(r, g, b) {
   }
 
   // Colors other than black-gray-white:
-  let d = (r == minRGB) ? g - b : ((b == minRGB) ? r - g : b - r);
-  let h = (r == minRGB) ? 3 : ((b == minRGB) ? 1 : 5);
+  let d = (r === minRGB) ? g - b : ((b === minRGB) ? r - g : b - r);
+  let h = (r === minRGB) ? 3 : ((b === minRGB) ? 1 : 5);
 
   computedH = (60*(h - d/(maxRGB - minRGB)))/360.0;
   computedS = (maxRGB - minRGB)/maxRGB;
@@ -54,9 +61,11 @@ export function rgb_to_hsv(r, g, b) {
   return ret;
 }
 
-let hsv_to_rgb_rets = new util.cachering(() => [0, 0, 0], 64);
+window.rgb_to_hsv = rgb_to_hsv;
 
-export function hsv_to_rgb(h, s, v) {
+let hsv_to_rgb_rets = new util.cachering(() => [0, 0, 0], 512);
+
+export function hsv_to_rgb(h, s, v, do_linear = true) {
   let c = 0, m = 0, x = 0;
   let ret = hsv_to_rgb_rets.next();
 
@@ -92,6 +101,10 @@ export function hsv_to_rgb(h, s, v) {
     color = RgbF_Create(m, m, m);
   }
 
+  if (do_linear) {
+    return linear_to_rgb(color[0], color[1], color[2]);
+  }
+
   return color;
 }
 
@@ -103,7 +116,86 @@ let lab_to_labch_rets = util.cachering.fromConstructor(Vector3, 512);
 let labch_to_lab_rets = util.cachering.fromConstructor(Vector3, 512);
 let rgb_to_lab_rets = util.cachering.fromConstructor(Vector3, 512);
 let lab_to_rgb_rets = util.cachering.fromConstructor(Vector3, 512);
-let rgb_to_cmyk_rets = util.cachering.fromConstructor(Vector3, 512);
+let rgb_to_cmyk_rets = util.cachering.fromConstructor(Vector4, 512);
+let cmyk_to_rgb_rets = util.cachering.fromConstructor(Vector3, 512);
+let rgb_to_linear_rets = util.cachering.fromConstructor(Vector3, 512);
+let linear_to_rgb_rets = util.cachering.fromConstructor(Vector3, 512);
+
+export function srgb_gamma_to_linear(c) {
+  if (c < 0.04045) {
+    return (c < 0.0) ? 0.0 : c*(1.0/12.92);
+  } else {
+    return Math.pow((c + 0.055)*(1.0/1.055), 2.4)
+  }
+}
+
+export function srgb_linear_to_gamma(c) {
+  if (c < 0.0031308) {
+    return (c < 0.0) ? 0.0 : c*12.92;
+  } else {
+    return 1.055*Math.pow(c, 1.0/2.4) - 0.055;
+  }
+}
+
+let gamma2linear = new Array(8192);
+let linear2gamma = new Array(8192);
+let needTables = true;
+
+export function makeGammaTables() {
+  let steps = gamma2linear.length, s = 0, ds = 1.0 / (steps - 1);
+
+  for (let i=0; i<steps; i++, s += ds) {
+    gamma2linear[i] = srgb_gamma_to_linear(s);
+    linear2gamma[i] = srgb_linear_to_gamma(s);
+  }
+}
+
+function checkTables() {
+  if (needTables) {
+    needTables = false;
+    makeGammaTables();
+  }
+}
+
+export function rgb_to_linear(r, g, b) {
+  let ret = rgb_to_linear_rets.next();
+
+  checkTables();
+
+  ret[0] = r;
+  ret[1] = g;
+  ret[2] = b;
+
+  for (let i = 0; i < ret.length; i++) {
+    let c = ret[i];
+    //c = Math.min(Math.max(c, 0.0), 0.99999);
+    c = ~~(c*8191);
+
+    ret[i] = gamma2linear[c];
+  }
+
+  return ret;
+}
+
+export function linear_to_rgb(r, g, b) {
+  let ret = rgb_to_linear_rets.next();
+
+  checkTables();
+
+  ret[0] = r;
+  ret[1] = g;
+  ret[2] = b;
+
+  for (let i = 0; i < ret.length; i++) {
+    let c = ret[i];
+    //c = Math.min(Math.max(c, 0.0), 0.99999);
+    c = ~~(c*8191);
+
+    ret[i] = linear2gamma[c];
+  }
+
+  return ret;
+}
 
 export function xyz_to_intensity(x, y, z) {
   return xyz_to_lab(x, y, z)[0];
@@ -339,6 +431,25 @@ export function rgb_to_labch(r, g, b) {
   //return xyz;
 
   return lab_to_labch(lab[0], lab[1], lab[2]);
+}
+
+export function cmyk_to_rgb(c, m, y, k) {
+  let ret = cmyk_to_rgb_rets.next();
+
+  if (k === 1.0) {
+    ret.zero();
+    return ret;
+  }
+
+  c = c - c*k + k;
+  m = m - m*k + k;
+  y = y - y*k + k;
+
+  ret[0] = 1.0 - c;
+  ret[1] = 1.0 - m;
+  ret[2] = 1.0 - y;
+
+  return ret;
 }
 
 export function rgb_to_cmyk(r, g, b) {

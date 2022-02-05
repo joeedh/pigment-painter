@@ -1,6 +1,7 @@
 import {simple, util, nstructjs, math, UIBase, Vector3, Vector4} from '../path.ux/scripts/pathux.js';
 import * as color from './color.js';
 import {freqToWaveLength, getCie65, waveLengthToFreq} from './cie65.js';
+import {linear_to_rgb} from './color.js';
 
 export const lightWaveLengths = [300, 830];
 export const lightFreqRange = [waveLengthToFreq(lightWaveLengths[0]), waveLengthToFreq(lightWaveLengths[1])];
@@ -176,6 +177,19 @@ simple.DataModel.register(PigmentWavelet);
 let pdigest = new util.HashDigest();
 let arrtmp1 = [0];
 
+let mixRGBRets = util.cachering.fromConstructor(Vector4, 512);
+
+let arrtemps = new Array(512);
+
+function getTempArray(n) {
+  if (arrtemps[n]) {
+    return arrtemps[n].next();
+  }
+
+  arrtemps[n] = new util.cachering(() => new Array(n), 32);
+  return arrtemps[n].next();
+}
+
 export class Pigment {
   constructor() {
     this.k_wavelets = [];
@@ -244,6 +258,209 @@ export class Pigment {
 
     let ratio = K/S;
     return 1.0 + ratio - Math.sqrt(ratio*ratio + 2.0*ratio);
+  }
+
+  static mixRGB_CMYK(cs, ws, dither = true) {
+    let cs2 = getTempArray(cs.length);
+    let hs2 = getTempArray(cs.length);
+
+    let i = 0;
+    let alpha = 0.0;
+
+    for (let c of cs) {
+      alpha += c[3]*ws[i];
+      c = color.rgb_to_linear(c[0], c[1], c[2]);
+
+      cs2[i] = color.rgb_to_cmyk(c[0], c[1], c[2]);
+      hs2[i] = color.rgb_to_hsv(c[0], c[1], c[2]);
+
+      i++;
+    }
+
+    i = 0;
+    let cmyk = mixRGBRets.next().zero();
+    for (let c of cs2) {
+      cmyk.addFac(c, ws[i]);
+      i++;
+    }
+
+    let c1 = cmyk.load(color.cmyk_to_rgb(cmyk[0], cmyk[1], cmyk[2], cmyk[3]));
+    c1.load(linear_to_rgb(c1[0], c1[1], c1[2]));
+
+    c1[3] = alpha;
+
+    let hsv = color.rgb_to_hsv(c1[0], c1[1], c1[2]);
+
+    //hsv[1] += hsv1[1] * (1.0 - w)*0.5;
+
+    i = 0;
+    let sat = 0.0, tot = 0.0;
+
+    if (window.DD === undefined) {
+      window.DD = 2.0;
+    }
+
+    if (1) {
+      for (let h of hs2) {
+        let w = ws[i];
+
+        let w2 = 1.0 - Math.pow(h[1]*h[2], DD);
+
+        let sfac = w2*(1.0-w);
+        sfac = Math.pow(sfac, 0.25);
+
+        let sat2 = Math.pow(hsv[1], (1.0 - sfac)*0.9 + 0.1);
+        let l = 0.2;
+
+        sat += sat2*w;
+        tot += w;
+
+        i++;
+      }
+
+
+      hsv[1] = tot !== 0.0 ? sat/tot : 0.0;
+      hsv[1] = Math.min(Math.max(hsv[1], 0.0), 1.0);
+
+      //*
+      let c = color.hsv_to_rgb(hsv[0], hsv[1], hsv[2]);
+
+      c1[0] = c[0];
+      c1[1] = c[1];
+      c1[2] = c[2];
+      //*/
+    }
+
+    return c1;
+  }
+
+  static mixRGB_Simple(pigments, colors, ws, dither = true) {
+    let ret = mixRGBRets.next().zero();
+    let alpha = 0.0;
+
+    for (let i = 0; i < colors.length; i++) {
+      let c = colors[i];
+
+      let linear = color.rgb_to_linear(c[0], c[1], c[2]);
+
+      ret.addFac(linear, ws[i]);
+      alpha += c[3]*ws[i];
+    }
+
+    ret.load(color.linear_to_rgb(color[0], color[1], color[2]));
+    ret[3] = alpha;
+
+    if (dither) {
+      ret[0] += (Math.random() - 0.5)/255.0;
+      ret[1] += (Math.random() - 0.5)/255.0;
+      ret[2] += (Math.random() - 0.5)/255.0;
+      ret[3] += (Math.random() - 0.5)/255.0;
+    }
+
+    return ret;
+  }
+
+  static mixRGB_HSV(colors, ws, dither = true) {
+    let ret = mixRGBRets.next().zero();
+    let alpha = 0.0;
+
+    for (let i = 0; i < colors.length; i++) {
+      let c = colors[i];
+      let hsv = color.rgb_to_hsv(c[0], c[1], c[2], true);
+
+      hsv[0] = Math.pow(hsv[0], 5.0);
+
+      ret.addFac(hsv, ws[i]);
+      alpha += c[3]*ws[i];
+    }
+
+    ret[0] = Math.pow(ret[0], 1.0/5.0);
+
+    ret.load(color.hsv_to_rgb(ret[0], ret[1], ret[2], true));
+    ret[3] = alpha;
+
+    if (dither) {
+      ret[0] += (Math.random() - 0.5)/255.0;
+      ret[1] += (Math.random() - 0.5)/255.0;
+      ret[2] += (Math.random() - 0.5)/255.0;
+      ret[3] += (Math.random() - 0.5)/255.0;
+    }
+
+    return ret;
+  }
+
+  static mixRGB(pigments, colors, ws, dither = true) {
+    //return this.mixRGB_Simple(pigments, colors, ws, dither);
+    //return this.mixRGB_CMYK(colors, ws, dither);
+    //return this.mixRGB_HSV(colors, ws, dither);
+
+    let cs2 = getTempArray(colors.length);
+    let wsb = getTempArray(colors.length);
+    let ks = getTempArray(colors.length);
+    let ps = pigments;
+    let alpha = 0.0;
+
+    for (let i = 0; i < cs2.length; i++) {
+      let c = cs2[i] = mixRGBRets.next().load(colors[i]);
+
+      wsb[i] = ws ? ws[i] : 1.0/cs2.length;
+      ks[i] = ps.sampleLUT(c[0], c[1], c[2]);
+
+      alpha += colors[i][3]*wsb[i];
+    }
+
+    let ks2 = ks[0];
+    ks2.mulScalar(wsb[0]);
+
+    for (let i = 1; i < ks.length; i++) {
+      ks2.addFac(ks[i], wsb[i]);
+    }
+
+    let w = ks2[0] + ks2[1] + ks2[2] + ks2[3];
+    if (w !== 0.0) {
+      ks2.mulScalar(1.0 / w);
+    }
+
+    let color = mixRGBRets.next().load(Pigment.toRGB(ps, ks2));
+    color[3] = alpha;
+
+    return color;
+    `
+    let c1b = Pigment.toRGB(ps, ws1);
+    let c2b = Pigment.toRGB(ps, ws2);
+
+    c1b.sub(c1).negate();
+    c2b.sub(c2).negate();
+    c2b.interp(c1b, w);
+
+    ws2.interp(ws1, w);
+
+    let mul = ws2[0] + ws2[1] + ws2[2] + ws2[3];
+    if (mul !== 0.0) {
+      ws2.mulScalar(1.0/mul);
+    }
+
+    if (0) {
+      ws2.zero();
+      ws2[0] = 1.0 - w;
+      ws2[2] = w;
+      ws2[3] = 0.1;
+
+      let mul = ws2[0] + ws2[1] + ws2[2] + ws2[3];
+      ws2.mulScalar(1.0/mul);
+    }
+
+    let a = c2[3] + (c1[3] - c2[3])*w;
+    c2.load(Pigment.toRGB(ps, ws2));
+    c2[3] = a;
+
+    for (let k = 0; k < 3; k++) {
+      c2[k] += c2b[k];
+      c2[k] = Math.min(Math.max(c2[k], 0.0), 1.0);
+    }
+
+    return c2;
+    `;
   }
 
   static toRGB(pigments, ws) {
@@ -587,6 +804,26 @@ export class Pigment {
     return this;
   }
 
+  copy() {
+    let ret = new Pigment();
+    let lists = [];
+
+    for (let list of [this.s_wavelets, this.k_wavelets]) {
+      let list2 = [];
+
+      for (let w of list) {
+        list2.push(w.copy());
+      }
+
+      lists.push(list2);
+    }
+
+    ret.s_wavelets = lists[0];
+    ret.k_wavelets = lists[1];
+
+    return ret;
+  }
+
   addWavelet(wavelets, freq, decay, mag) {
     wavelets.push(new PigmentWavelet(freq, decay, mag));
   }
@@ -656,7 +893,7 @@ simple.DataModel.register(Pigment);
 
 let LC = 0, LM = 1, LY = 2, LK = 3, LTOT = 4;
 
-let sampleRets = util.cachering.fromConstructor(Vector4, 512);
+let sampleRets = util.cachering.fromConstructor(Vector4, 1024);
 
 export class PigmentSet extends Array {
   constructor() {
@@ -668,6 +905,16 @@ export class PigmentSet extends Array {
 
   loadSTRUCT(reader) {
     reader(this);
+  }
+
+  copy() {
+    let ret = new PigmentSet();
+
+    for (let item of this) {
+      ret.push(item.copy());
+    }
+
+    return ret;
   }
 
   checkLUT() {

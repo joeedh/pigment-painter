@@ -3,8 +3,10 @@ import {
   nstructjs, util, UIBase
 } from '../path.ux/pathux.js';
 
+import {PlatformAPI} from '../path.ux/scripts/platforms/platform_base.js';
 import {Canvas, Brush, getSearchOffs} from './canvas.js';
 import {CanvasEditor} from './canvas_editor.js';
+import {Icons} from './icon_enum.js';
 
 export class Context {
   get canvas() {
@@ -56,7 +58,13 @@ export class AppState extends simple.AppState {
   }
 
   start() {
-    super.start();
+    let iconsheet = document.createElement("img");
+    iconsheet.src = PlatformAPI.resolveURL("/assets/iconsheet.svg");
+
+    super.start({
+      iconsheet,
+      icons : Icons
+    });
 
     if (LOCAL_STORAGE_KEY in localStorage) {
       let data = localStorage[LOCAL_STORAGE_KEY];
