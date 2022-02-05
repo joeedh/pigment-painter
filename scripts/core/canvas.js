@@ -80,61 +80,34 @@ export class Brush {
       this.pigments.push(new Pigment());
     }
 
-    this.pigments[0].loadJSON({
-      "name"  : "Pigment", "ks": [{
-        "freq": 691.8100465846086, "decay": 162.4720426815786, "mag": 48.48074551520817, "exp": 2.342533814086252,
-        "offy": 0.44881676450655095
-      }], "ss": [{
-        "freq": 340.55202664142365, "decay": 93.4148545605531, "mag": 95.37526397026298, "exp": 1.7487563495757958,
-        "offy": 0.24820640410061184
-      }]
-    });
-
-    this.pigments[1].loadJSON({
-      "name"  : "Pigment", "ks": [{
-        "freq": 717.2404819621054, "decay": 251.01355104181252, "mag": 41.54339824658726, "exp": 7.450289767879927,
-        "offy": 15.833202813546713
-      }], "ss": [{
-        "freq": 303.23642874871797, "decay": 6.98836248855946, "mag": 1153.8590514972975, "exp": 0.5489184849132271,
-        "offy": 2.703550921633522
-      }, {
-        "freq": 788.1198169478561, "decay": 201.2571872238481, "mag": 616.6078006292933, "exp": 8.52869282371732,
-        "offy": 1.8496906070350854
-      }]
-    });
-
-    this.pigments[2].loadJSON({
-      "name"  : "Pigment", "ks": [{
-        "freq": 351.63720305616187, "decay": 231.55578806204696, "mag": 230.03880907415194, "exp": 0.12657663979971753,
-        "offy": 0.21390415423503775
-      }], "ss": [{
-        "freq": 557.5970908000044, "decay": 98.11635016636761, "mag": 204.73609236885557, "exp": 2.3510159009186036,
-        "offy": 0.0006591617668402459
-      }]
-    });
-
-    this.pigments[2].loadJSON({
-      "name"  : "Pigment", "ks": [{
-        "freq": 824.7049076205907, "decay": 19.796165824813453, "mag": 78.54067058866042, "exp": 0.25458359753064835,
-        "offy": 6.851052206768374
-      }], "ss": [{
-        "freq": 558.865564895279, "decay": 91.22064172245169, "mag": 308.53208071211225, "exp": 1.7996867765679512,
-        "offy": 1.0719804598385343
-      }]
-    });
-
-    this.pigments[3].loadJSON({
-      "name"  : "Pigment", "ks": [{
-        "freq": 301.9085498649776, "decay": 58.706162351401666, "mag": 40.54896091094154, "exp": 0.9019133103126415,
-        "offy": 0.14519603693828417
-      }], "ss": [{
-        "freq": 447.2867613224409, "decay": 101.81623108369593, "mag": 38.3634916901608, "exp": 2.5808665731941036,
-        "offy": 0
-      }, {
-        "freq": 455.09814441235255, "decay": 87.0512751527589, "mag": 48.3228325660059, "exp": 4.833737190576224,
-        "offy": 6.39927709785516
-      }]
-    });
+    /*
+      Arylide__Hansa__yellow: 1
+      Biz_vanadate_yellow: 17
+      Bone_black: 0
+      Cadmium_orange: 3
+      Diarylide_yellow: 2
+      PH_G_and_Biz_Y_mix: 20
+      Phathalo_blue_green_shade_tints: 14
+      Phathlo_Green_blue_shade: 15
+      Phathlo_green_yellow_shade: 16
+      Phthalo_B__GS__and_Phthalo_G__BS_: 21
+      Phthalo_blue_red_shade: 13
+      Pyrrole_orange: 4
+      Quin_Mag_and_Dioxazine_P: 22
+      Titanium_White: 23
+      dioxazine_purple_tints: 9
+      k_cadmium_red: 5
+      k_cerulean_blue: 12
+      k_cobalt_blue: 11
+      k_pyrrole_red: 6
+      k_quinacridone_magenta: 8
+      k_quinacridone_red: 7
+      k_ultramarine_blue: 10
+    */
+    this.pigments[0].pigment = 14;
+    this.pigments[1].pigment = 8;
+    this.pigments[2].pigment = 1;
+    this.pigments[3].pigment = 23;
 
     this.pigment = this.pigments[0];
   }
@@ -538,7 +511,7 @@ export class Canvas {
       c2[3] = tdata[oi + 3];
 
       colors[0] = c1;
-      colors[1] = c2;
+      colors[1] = brushcolor;
 
       w = tdata[oi + OMASK]*w1;
 

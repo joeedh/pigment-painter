@@ -124,9 +124,9 @@ export class PigmentEditor extends Container {
       this.flagRedraw();
     });
 
-    this.spanel = this.panel("S");
-    this.kpanel = this.panel("K");
+    this.spanel = this.kpanel = undefined;
 
+    this.pigmentDropbox = undefined;
     this.needRebuild = true;
   }
 
@@ -210,12 +210,11 @@ export class PigmentEditor extends Container {
             y = pigment.K(f);
             break;
           case 2:
-            y = pigment.R(f)*1000.0;
+            y = pigment.R(f);
             break;
         }
 
-        y *= 100.0/canvas.height;
-
+        y *= canvas.height*0.1;
         y = canvas.height - y - 50;
 
         if (!i) {
@@ -239,9 +238,7 @@ export class PigmentEditor extends Container {
   init() {
     super.init();
 
-    this.spanel.closed = true;
-    this.kpanel.closed = true;
-
+    this.rebuild();
     this.flagRedraw();
   }
 
@@ -254,11 +251,26 @@ export class PigmentEditor extends Container {
 
     let data = saveUIData(this, "pigments");
 
+    let path = this.getAttribute("datapath");
+
+    if (!this.pigmentDropbox) {
+      this.pigmentDropbox = this.prop(path + ".pigment");
+      this.prop(path + ".useWavelets");
+    } else {
+      this.pigmentDropbox.setAttribute("datapath", path + ".pigment");
+    }
+
+    if (!this.spanel) {
+      this.spanel = this.panel("S");
+      this.kpanel = this.panel("K");
+
+      this.spanel.closed = true;
+      this.kpanel.closed = true;
+    }
+
     let pigment = this.getPigment();
     let panels = [this.spanel, this.kpanel];
     let lists = [pigment.s_wavelets, pigment.k_wavelets];
-
-    let path = this.getAttribute("datapath");
 
     let makeAddButton = (panel, i) => {
       panel.button("+", () => {
@@ -281,7 +293,6 @@ export class PigmentEditor extends Container {
         }
       });
     }
-
 
     for (let i = 0; i < 2; i++) {
       let panel = panels[i];

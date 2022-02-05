@@ -6,6 +6,7 @@ import {
 import {getSearchOffs} from './canvas.js';
 
 import './pigment_editor.js';
+import {Optimizer} from './optimize.js';
 
 export class CanvasEditor extends simple.Editor {
   constructor() {
@@ -98,6 +99,7 @@ export class CanvasEditor extends simple.Editor {
     this.header.prop("canvas.brush.color");
 
     let sidebar = this.makeSideBar();
+    sidebar.width = 400;
     let tab;
 
     tab = sidebar.tab("Brush");
@@ -115,6 +117,21 @@ export class CanvasEditor extends simple.Editor {
     let names = ["C", "M", "Y", "K"];
 
     tab = sidebar.tab("Pigment");
+
+    this.solver = undefined;
+
+    let button2 = tab.button("Optimize", () => {
+      if (this.solver) {
+        this.solver.stop();
+        this.solver = undefined;
+        button2.name = "Optimize";
+      } else {
+        this.solver = new Optimizer(this.ctx.brush.pigments);
+        this.solver.start();
+        button2.name = "Stop";
+      }
+    });
+    button2.description = "Optimize pigment spectral at a data level";
 
     for (let i=0; i<4; i++) {
       let panel = tab.panel(names[i]);
