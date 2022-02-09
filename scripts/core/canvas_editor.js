@@ -133,6 +133,8 @@ export class CanvasEditor extends simple.Editor {
     tab.prop("canvas.brush.spacing");
     tab.prop("canvas.brush.scatter");
     tab.prop("canvas.brush.smear");
+    tab.prop("canvas.brush.smearLen");
+    tab.prop("canvas.brush.smearRate");
 
     tab.useIcons(true);
     tab.row().prop("canvas.activeBrush");
@@ -344,6 +346,14 @@ export class CanvasEditor extends simple.Editor {
 
   getKeyMaps() {
     return this.keymap ? [this.keymap] : [];
+  }
+
+  update() {
+    super.update();
+
+    if (this.ctx && this.ctx.canvas) {
+      this.ctx.canvas.checkWasmImage();
+    }
   }
 
   on_mouseup(e) {

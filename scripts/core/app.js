@@ -1,3 +1,5 @@
+import '../../wasm/wasm_api.js';
+
 import {
   simple, Vector2, Vector3, Vector4,
   nstructjs, util, UIBase, ToolOp

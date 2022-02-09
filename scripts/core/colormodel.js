@@ -511,7 +511,7 @@ export class Pigment {
 
     let res = Pigment.toRGB_intern(pigments, ks2);
     let color = mixRGBRets.next().load(res);
-    color.add(delta);
+    //color.add(delta);
     color[3] = alpha;
 
     if (1 || dither) {

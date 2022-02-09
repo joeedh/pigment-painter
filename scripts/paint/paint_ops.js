@@ -97,6 +97,8 @@ export class BrushStrokeOp extends ImageOp {
       this.last_stroke_mpos.load(mpos);
       this.first = false;
       was_first = true;
+
+      ctx.canvas.beginStroke();
     }
 
     let dpi = this.inputs.dpi.getValue();
@@ -125,8 +127,6 @@ export class BrushStrokeOp extends ImageOp {
       return;
     }
 
-    console.log(mpos[0], mpos[1]); //this.t - this.last_t > brush.spacing, this.t - this.last_t, brush.spacing);
-
     if (this.t - this.last_t > brush.spacing) {
       let steps = Math.ceil((this.t - this.last_t)/brush.spacing + 0.5);
       let ds = 1.0/steps
@@ -141,8 +141,8 @@ export class BrushStrokeOp extends ImageOp {
 
         let pressure2 = this.last_stroke_pressure;
 
-        let skip = mpos[0] < radius*2 || mpos[0] >= image.width + radius*2;
-        skip = skip || (mpos[1] < radius*2 || mpos[1] >= image.height + radius*2);
+        let skip = mpos[0] < -radius*2 || mpos[0] >= image.width + radius*2;
+        skip = skip || (mpos[1] < -radius*2 || mpos[1] >= image.height + radius*2);
 
         if (skip) {
           continue;

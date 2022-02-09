@@ -14,12 +14,15 @@ export const exports = {};
 
 let mimemap = {
   ".js" : "application/javascript",
+  ".cjs" : "application/javascript",
+  ".mjs" : "application/javascript",
   ".json" : "text/json",
   ".html" : "text/html",
   ".png" : "image/png",
   ".jpg" : "image/jpeg",
   ".css" : "text/css",
-  ".svg" : "image/svg+xml"
+  ".svg" : "image/svg+xml",
+  ".wasm" : "application/wasm",
 };
 
 let getMime = (p) => {

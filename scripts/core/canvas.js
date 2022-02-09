@@ -1,8 +1,11 @@
-import {simple, util, nstructjs, math, UIBase, Vector3, Vector4} from '../path.ux/scripts/pathux.js';
+import {
+  simple, util, nstructjs, math, UIBase, Vector3, Vector4, Curve1D, FloatProperty, Vec3Property, Vec4Property
+} from '../path.ux/scripts/pathux.js';
 import './colormodel.js';
 import {getLUTImage, Pigment, PigmentSet, USE_LUT_IMAGE} from './colormodel.js';
 import {Icons} from './icon_enum.js';
 import {hsv_to_rgb} from './color.js';
+import {ImageSlots, makeSharedImageData, wasmModule, wasmReady} from '../../wasm/wasm_api.js';
 
 let soffs = new Array(2048);
 
@@ -117,8 +120,535 @@ export const BrushMixModes = {
   HSV     : 3,
 };
 
+export const DynamicFlags = {
+  ENABLED : 1<<0
+};
+
+export class InputDynamic {
+  constructor(name) {
+    this.curve = new Curve1D();
+    this.name = "" + name;
+
+    this.flag = 0;
+    this.inputMin = 0.0;
+    this.inputMax = 1.0;
+    this.outputMin = 0.0;
+    this.outputMax = 1.0;
+  }
+
+  evaluate(f) {
+    if (!this.enabled) {
+        return f;
+    }
+
+    f = Math.min(Math.max(f, this.inputMin), this.inputMax);
+    f = (f - this.inputMin) / (this.inputMax - this.inputMin);
+
+    f = this.curve.evaluate(f);
+
+    f = f*(this.outputMax - this.outputMin) + this.outputMin;
+    return f;
+  }
+
+  static defineAPI(api, st) {
+    st.string("name", "name", "Name").readOnly();
+    st.curve1d("curve", "curve", "Curve");
+    st.flags("flag", "flag", DynamicFlags);
+
+    st.float("inputMin", "inputMin", "Input Min")
+      .range(-10.0, 10.0)
+      .noUnits();
+
+    st.float("inputMax", "inputMax", "Input Max")
+      .range(-10.0, 10.0)
+      .noUnits();
+
+    st.float("outputMin", "outputMin", "Output Min")
+      .range(-10.0, 10.0)
+      .noUnits();
+
+    st.float("outputMax", "outputMax", "Output Max")
+      .range(-10.0, 10.0)
+      .noUnits();
+
+  }
+
+  get enabled() {
+    return this.flag & DynamicFlags.ENABLED;
+  }
+
+  set enabled(v) {
+    if (v) {
+      this.flag |= DynamicFlags.ENABLED;
+    } else {
+      this.flag &= ~DynamicFlags.ENABLED;
+    }
+  }
+
+  copyTo(b) {
+    b.name = this.name;
+    b.curve.load(this.curve);
+    b.flag = this.flag;
+    b.inputMin = this.inputMin;
+    b.inputMax = this.inputMax;
+    b.outputMin = this.outputMin;
+    b.outputMax = this.outputMax;
+  }
+
+  copy() {
+    let ret = new InputDynamic();
+    this.copyTo(ret);
+    return ret;
+  }
+}
+
+InputDynamic.STRUCT = `
+InputDynamic {
+  name      : string;
+  curve     : Curve1D;
+  flag      : int;
+  inputMin  : float;
+  inputMax  : float;
+  outputMin : float;
+  outputMax : float;
+}
+`;
+nstructjs.register(InputDynamic);
+simple.DataModel.register(InputDynamic);
+
+export class BrushDynamics {
+  constructor() {
+    this.mappings = new Map();
+  }
+
+  static defineAPI(api, st) {
+    st.list("mappings", "mappings", {
+      get(api, list, key) {
+        return list.get(key);
+      },
+      getKey(api, list, obj) {
+        return obj.name;
+      },
+      getLength(api, list) {
+        return list.mappings.size;
+      },
+      getIter(api, list) {
+        return list.values()[Symbol.iterator]();
+      },
+      getStruct(api, list, key) {
+        return api.mapStruct(InputDynamic);
+      }
+    });
+    return st;
+  }
+
+  [Symbol.iterator]() {
+    return this.mappings.values()[Symbol.iterator]();
+  }
+
+  copy() {
+    let ret = new BrushDynamics();
+
+    for (let dyn of this.mappings.values()) {
+      ret.mappings.set(dyn.name, dyn.copy());
+    }
+
+    return ret;
+  }
+
+  ensure(name) {
+    return this.add(name);
+  }
+
+  add(name) {
+    let ret = this.mappings.get(name);
+    if (ret) {
+      return ret;
+    }
+
+    ret = new InputDynamic(name);
+    this.mappings.set(name, ret);
+    return ret;
+  }
+
+  get(name) {
+    return this.mappings.get(name);
+  }
+
+  has(name) {
+    return this.get(name) !== undefined;
+  }
+
+  evaluate(name, value) {
+    return this.mappings.get(name).evaluate(value);
+  }
+
+  loadSTRUCT(reader) {
+    reader(this);
+
+    let mappings = new Map();
+
+    for (let map of this.mappings) {
+      mappings.set(map.name, map);
+    }
+    this.mappings = mappings;
+  }
+}
+
+BrushDynamics.STRUCT = `
+BrushDynamics {
+  mappings : iter(InputDynamic) | this.mappings.values();
+}`
+;
+simple.DataModel.register(BrushDynamics);
+
+let ch_ret_vec3s = util.cachering.fromConstructor(Vector3, 64);
+let ch_ret_vec4s = util.cachering.fromConstructor(Vector4, 512);
+
+export class BrushChannel {
+  constructor(name, propcls = FloatProperty) {
+    this.name = name;
+    this.uiName = name;
+    this.propClass = propcls;
+
+    this.prop = new propcls();
+    this.prop.name = name;
+    this.prop.uiName = this.uiName;
+
+    this.prop.range = [0.0, 1.0];
+
+    this.prop.baseUnit = this.prop.displayUnit = "none";
+
+    this.dynamics = new BrushDynamics();
+    this.dynamics.add("pressure");
+  }
+
+  copyTo(b) {
+    b.name = this.name;
+    b.uiName = this.uiName;
+    b.propClass = this.propClass;
+    b.prop = this.prop.copy();
+    b.dynamics = this.dynamics.copy();
+  }
+
+  copy() {
+    let ret = new BrushChannel();
+    this.copyTo(ret);
+    return ret;
+  }
+
+  get value() {
+    return this.getValue();
+  }
+
+  static defineAPI(api, st) {
+    st.string("name", "name", "Name").readOnly();
+    st.string("uiName", "uiName", "Display Name").readOnly();
+    st.float("value", "value", "Value");
+    st.struct("dynamics", "dynamics", "Dynamics", api.mapStruct(BrushDynamics, true));
+  }
+
+  getValue() {
+    return this.prop.getValue();
+  }
+
+  setValue(v) {
+    this.prop.setValue(v);
+  }
+
+  evaluate(inputs = {}) {
+    let f = this.getValue();
+
+    if (typeof f === "object") {
+      f = f.length === 3 ? ch_ret_vec3s.next().load(f) : ch_ret_vec4s.next().load(f);
+
+      for (let d of this.dynamics) {
+        if (d.name in inputs) {
+          for (let i = 0; i < f.length; i++) {
+            f[i] *= d.evaluate(inputs[d.name]);
+          }
+        }
+      }
+
+      return f;
+    }
+
+    for (let d of this.dynamics) {
+      if (d.name in inputs) {
+        f *= d.evaluate(inputs[d.name]);
+      }
+    }
+
+    return f;
+  }
+
+  loadSTRUCT(reader) {
+    reader(this);
+
+    this.propClass = this.prop.constructor;
+
+  }
+
+  uiName(name) {
+    this.prop.uiName = name;
+    return this;
+  }
+
+  range(a, b) {
+    this.prop.range[0] = a;
+    this.prop.range[1] = b;
+
+    return this;
+  }
+
+  min(f) {
+    this.prop.range[0] = f;
+    return this;
+  }
+
+  max(f) {
+    this.prop.range[1] = f;
+    return this;
+  }
+
+  baseUnit(u) {
+    this.prop.baseUnit = u;
+    return this;
+  }
+
+  displayUnit(u) {
+    this.prop.displayUnit = u;
+  }
+
+  expRate(rate) {
+    this.prop.expRate = rate;
+    return this;
+  }
+
+  step(s) {
+    this.prop.step = s;
+    return this;
+  }
+
+  stepIsRelative(b) {
+    this.prop.stepIsRelative = !!b;
+    return this;
+  }
+
+  decimalPlaces(c) {
+    this.prop.decimalPlaces = c;
+    return this;
+  }
+}
+
+BrushChannel.STRUCT = `
+BrushChannel {
+  name     : string;
+  uiName   : string;
+  prop     : abstract(ToolProperty);
+  dynamics : BrushDynamics;
+}
+`;
+simple.DataModel.register(BrushChannel);
+
+export class BrushChannelSet extends Array {
+  constructor() {
+    super();
+
+    this.nameMap = new Map();
+  }
+
+  static defaultTemplate() {
+    return {
+      strength : {value: 0.5, range: [0.0, 1.0], penPressure : true},
+      radius   : {value: 25.0, range: [0.001, 5000.0]},
+      scatter  : {value: 0.0, range: [0.0, 100.0]},
+      smear    : {value: 0.2, range: [0.0, 5.0]},
+      smearLen : {value: 6.0, range: [0.0, 50.0]},
+      smearRate: 0.2,
+      spacing  : {value: 0.0, range: [0.0, 5.0]},
+      color    : new Vector4([0.0, 0.0, 0.0, 1.0]),
+    }
+  }
+
+  copy() {
+    let ret = new BrushChannelSet();
+
+    for (let ch of this) {
+      ret.push(ch.copy());
+    }
+
+    return ret;
+  }
+
+  ensure(name, propClass) {
+    let ch = this.nameMap.get(name);
+
+    if (!ch) {
+      ch = new BrushChannel(name, propClass);
+      this.nameMap.set(name, ch);
+      this.push(ch);
+    }
+
+    return ch;
+  }
+
+  remove(name_or_ch) {
+    if (typeof name_or_ch === "string") {
+      let ch = this.nameMap.get(name_or_ch);
+
+      if (!ch) {
+        throw new Error("unknown channel " + name_or_ch);
+      }
+
+      super.remove(ch);
+      this.nameMap.delete(name_or_ch);
+    } else {
+      super.remove(name_or_ch);
+    }
+  }
+
+  evaluate(name, inputs) {
+    if (!this.nameMap.has(name)) {
+      throw new Error("unknown channel " + name);
+    }
+
+    this.get(name).evaluate(inputs);
+  }
+
+  getValue(name) {
+    return this.get(name).getValue();
+  }
+
+  setValue(name, val, warn_on_error) {
+    if (warn_on_error && !this.has(name)) {
+      console.warn("Warning: unknown brush channel " + name + "!");
+      return;
+    }
+
+    this.get(name).setValue(val);
+  }
+
+  get(name) {
+    return this.nameMap.get(name);
+  }
+
+  has(name_or_ch) {
+    if (typeof name_or_ch === "object") {
+      return this.nameMap.get(name_or_ch.name) === name_or_ch;
+    } else {
+      return nameMap.has(name_or_ch);
+    }
+  }
+
+  ensureTemplate(def) {
+    let def2 = {};
+
+    for (let k in def) {
+      if (!this.nameMap.has(k)) {
+        def2[k] = def[k];
+      }
+    }
+
+    return this.fromTemplate(def2);
+  }
+
+  /**
+   * set up channels from a template
+   *
+   * example:
+   *
+   * {
+   *   strength: 0.5,
+   *   radius  : {value : 25.0, range : [0, 15]}}
+   * */
+  fromTemplate(def ) {
+    for (let k in def) {
+      let v = def[k];
+
+      if (typeof v === "number" || (Array.isArray(v) || v instanceof Vector3 || v instanceof Vector4)) {
+        v = {value: v};
+      }
+
+      let cls = FloatProperty;
+
+      if (Array.isArray(v.value)) {
+        cls = v.value.length === 3 ? Vec3Property : Vec4Property;
+      }
+
+      let ch = this.ensure(k, cls);
+
+      if ("range" in v) {
+        ch.range(v.range[0], v.range[1]);
+      }
+      if ("min" in v) {
+        ch.min(v.min);
+      }
+      if ("max" in v) {
+        ch.max(v.max);
+      }
+      if ("expRate" in v) {
+        ch.expRate(v.expRate);
+      }
+      if ("step" in v) {
+        ch.step(v.step);
+      }
+
+      if (v.penPressure) {
+        ch.dynamics.ensure("pressure").enabled = true;
+      }
+    }
+  }
+
+  applyAllDynamics(inputs) {
+    for (let ch of this) {
+      let val = ch.evaluate(inputs);
+
+      for (let dyn of ch.dynamics) {
+        dyn.enabled = false;
+      }
+
+      ch.setValue(val);
+    }
+  }
+
+  loadSTRUCT(reader) {
+    reader(this);
+
+    for (let ch of this) {
+      this.nameMap.set(ch.name, ch);
+    }
+  }
+
+  static defineAPI(api, st) {
+    st.list("channels", "channels", {
+      get(api, list, key) {
+        return list.nameMap.get(key);
+      },
+
+      getKey(api, list, obj) {
+        return key.name;
+      },
+
+      getStruct(api, list, key) {
+        return api.mapStruct(BrushChannel, true);
+      }
+    });
+  }
+}
+
+BrushChannelSet.STRUCT = `
+BrushChannelSet {
+  this  :  array(BrushChannel);
+}
+`;
+simple.DataModel.register(BrushChannelSet);
+
 export class Brush {
   constructor() {
+    this.channels = new BrushChannelSet();
+    this.channels.fromTemplate(BrushChannelSet.defaultTemplate());
+
     //this.color = new Vector4([0.2, 0.0, 0.6, 1.0]); //c
     this.color = new Vector4([0.6, 0.0, 0.2, 1.0]); //m
     //this.color = new Vector4([1.0, 1.0, 0.0, 1.0]); //y
@@ -126,6 +656,9 @@ export class Brush {
 
     this.mixMode = BrushMixModes.PIGMENT;
     this.tool = BrushTools.DRAW;
+
+    this.smearLen = 0.5;
+    this.smearRate = 1.0;
 
     this.strength = 0.5;
     this.radius = 15;
@@ -138,6 +671,14 @@ export class Brush {
     this.pigment = undefined;
   }
 
+  asApplied(inputs) {
+    let ret = this.copy();
+
+    ret.channels.applyAllDynamics(inputs);
+
+    return ret;
+  }
+
   static defineAPI(api, st) {
     st.color4("color", "color", "Color");
     st.float("radius", "radius", "Radius").noUnits().range(1, 512);
@@ -146,6 +687,10 @@ export class Brush {
     st.struct("pigment", "pigment", "Pigment", api.mapStruct(Pigment, true));
     st.float("scatter", "scatter", "Scatter").range(0.0, 10.0).noUnits();
     st.float("smear", "smear", "smear", "Smear color pickup factor").range(0.0, 1.0).noUnits();
+    st.float("smearLen", "smearLen", "Smear Len", "Smear Length").range(0.0, 50.0).noUnits();
+    st.float("smearRate", "smearRate", "Smear Rate", "Smear Rate").range(0.0, 50.0).noUnits();
+
+    st.struct("channels", "channels", "Channels", api.mapStruct(BrushChannelSet, true));
 
     st.flags("flag", "flag", BrushFlags, "Flags");
 
@@ -177,6 +722,8 @@ export class Brush {
   copyTo(b) {
     b.color.load(this.color);
     b.smear = this.smear;
+    b.smearLen = this.smearLen;
+    b.smearRate = this.smearRate;
     b.strength = this.strength;
     b.radius = this.radius;
     b.scatter = this.scatter;
@@ -213,12 +760,16 @@ export class Brush {
     digest.add(this.mixMode);
     digest.add(this.scatter);
     digest.add(this.smear);
+    digest.add(this.smearLen);
+    digest.add(this.smearRate);
 
     return digest.get();
   }
 
   loadSTRUCT(reader) {
     reader(this);
+
+    this.channels.ensureTemplate(BrushChannelSet.defaultTemplate());
   }
 }
 
@@ -233,9 +784,29 @@ Brush {
   mixMode  : int;
   scatter  : float;
   smear    : float;
+  smearLen : float;
+  smearRate: float;
+  channels : BrushChannelSet;
 }
 `;
 simple.DataModel.register(Brush);
+
+/* add brush channels as getters/settings to Brush */
+function makeBrushProp(k) {
+  Object.defineProperty(Brush.prototype, k, {
+    get() {
+      return this.channels.getValue(k);
+    },
+
+    set(v) {
+      this.channels.setValue(k, v, false);
+    }
+  });
+}
+
+for (let k in BrushChannelSet.defaultTemplate()) {
+  makeBrushProp(k);
+}
 
 let white = new Vector4([1, 1, 1, 1]);
 
@@ -251,6 +822,8 @@ export class Canvas {
     this.origImage = undefined;
     this.tempImage = undefined;
     this.dimen = undefined;
+
+    this.haveWasmImage = false;
 
     this.smearPickup = new Vector4();
     this.smearPickupFirst = true;
@@ -386,6 +959,10 @@ export class Canvas {
   }
 
   beginStroke() {
+    if (wasmReady()) {
+      wasmModule.asm.onStrokeStart();
+    }
+
     this.smearPickup.zero();
     this.smearPickupFirst = true;
     this.pushCommand(BEGINSTROKE);
@@ -704,7 +1281,34 @@ export class Canvas {
     }
   }
 
+  execDotInternWasm(ds, brush) {
+    const dpi = UIBase.getDPI();
+
+    wasmModule.asm.setBrush(
+      brush.color[0],
+      brush.color[1],
+      brush.color[2],
+      brush.color[3],
+      brush.radius*dpi,
+      brush.strength,
+      brush.spacing,
+      brush.scatter,
+      brush.smear,
+      brush.smearLen,
+      brush.smearRate,
+      brush.flag,
+      brush.tool);
+
+    wasmModule.asm.execDot(ds.x, ds.y, ds.dx, ds.dy, ds.t, ds.pressure);
+  }
+
   execDotIntern(ds, brush) {
+    if (wasmReady()) {
+      this.checkWasmImage();
+      this.execDotInternWasm(ds, brush);
+      return;
+    }
+
     let {dx, dy, t, pressure} = ds;
     let x1 = ds.x, y1 = ds.y;
 
@@ -789,10 +1393,49 @@ export class Canvas {
     }
   }
 
+  checkWasmImage() {
+    if (!this.haveWasmImage && wasmReady()) {
+      console.log("converting to wasm image. . .");
+
+      let image1 = this.image;
+      let image2 = makeSharedImageData(image1.width, image1.height);
+
+      image2.data.set(image1.data);
+      this.image = image2;
+
+      if (this.unifiedLut) {
+        let dimen;
+
+        if (this.pigments.lut) {
+          dimen = this.pigments.lut.dimen;
+        } else {
+          dimen = 256;
+        }
+
+        let unifiedLut = makeSharedImageData(this.unifiedLut.width, this.unifiedLut.height, ImageSlots.LUT, dimen);
+        unifiedLut.data.set(this.unifiedLut.data);
+
+        this.unifiedLut = unifiedLut;
+      }
+
+      this.haveWasmImage = true;
+    }
+  }
+
+  makeImage(width, height) {
+    if (wasmReady()) {
+      this.haveWasmImage = true;
+      return makeSharedImageData(width, height);
+    } else {
+      this.haveWasmImage = false;
+      return new ImageData(width, height);
+    }
+  }
+
   reset(dimen) {
     if (dimen !== undefined) {
       this.dimen = dimen;
-      this.image = new ImageData(dimen, dimen);
+      this.image = this.makeImage(dimen, dimen);
       this.origImage = new Float32Array(dimen*dimen*OTOT);
       this.tempImage = new Float32Array(dimen*dimen*OTOT);
     }
@@ -849,6 +1492,21 @@ export class Canvas {
 
   loadLutImage() {
     getLUTImage().then((res) => {
+      if (wasmReady()) {
+        let dimen;
+
+        if (this.pigments.lut) {
+          dimen = this.pigments.lut.dimen;
+        } else {
+          dimen = 256;
+        }
+
+        this.unifiedLut = makeSharedImageData(res.image.width, res.image.height, ImageSlots.LUT, dimen);
+        this.unifiedLut.data.set(res.image.data);
+      } else {
+        this.unifiedLut = res.image;
+      }
+
       console.log("loaded image lookup data", res);
       this.pigments.loadLUTImage(res.image, res.dimen);
     });

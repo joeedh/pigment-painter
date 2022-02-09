@@ -159,7 +159,7 @@ export class ImageOp extends ToolOp {
       tile.data = old;
     }
 
-    ctx.canvas.image = g.getImageData(0, 0, image.width, image.height);
+    ctx.canvas.image.data.set(g.getImageData(0, 0, image.width, image.height).data);
     window.redraw_all();
   }
 
