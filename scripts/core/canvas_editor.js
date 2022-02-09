@@ -1,12 +1,16 @@
 import {
   simple, UIBase, Vector4, Vector3,
   Vector2, Quat, Matrix4, util, nstructjs,
-  KeyMap, HotKey
+  KeyMap, HotKey, eventWasTouch
 } from '../path.ux/scripts/pathux.js';
-import {getSearchOffs} from './canvas.js';
+import {getSearchOffs, DotSample} from './canvas.js';
 
 import './pigment_editor.js';
 import {Optimizer} from './optimize.js';
+
+import '../paint/paint_ops.js';
+import {getPressure} from '../paint/paint.js';
+import {Icons} from './icon_enum.js';
 
 export class CanvasEditor extends simple.Editor {
   constructor() {
@@ -25,6 +29,10 @@ export class CanvasEditor extends simple.Editor {
     this.start_mpos = new Vector2();
     this.mpos = new Vector2();
 
+    this.strokeTimer = undefined;
+    this.strokeJob = undefined;
+    this.strokeQueue = [];
+    this.strokeQueueCur = 0;
     this.shadow.appendChild(this.canvas);
 
     this.keymap = undefined;
@@ -46,6 +54,9 @@ export class CanvasEditor extends simple.Editor {
   }
 
   flagRedraw() {
+    window.redraw_all();
+    return;
+
     if (this.animReq) {
       return;
     }
@@ -72,7 +83,7 @@ export class CanvasEditor extends simple.Editor {
 
     g.beginPath();
     let dimen = this.ctx.canvas.dimen;
-    console.log("DIMEN", dimen);
+
     g.rect(0, 0, dimen, dimen);
     g.stroke();
   }
@@ -90,13 +101,26 @@ export class CanvasEditor extends simple.Editor {
 
     this.flagRedraw();
 
-    let strip = this.header.row();
-    strip.useIcons(true);
-    strip.prop("canvas.brush.tool");
+    let header = this.header.col();
 
-    this.header.prop("canvas.brush.radius");
-    this.header.prop("canvas.brush.strength");
-    this.header.prop("canvas.brush.color");
+
+    let strip = header.row();
+    strip.useIcons(true);
+
+    strip.prop("canvas.activeBrush");
+
+    strip.iconbutton(Icons.UNDO, "Undo", () => {
+      this.ctx.toolstack.undo(this.ctx);
+    });
+    strip.iconbutton(Icons.REDO, "Redo", () => {
+      this.ctx.toolstack.redo(this.ctx);
+    });
+
+    header = header.row();
+
+    header.prop("canvas.brush.color");
+    header.prop("canvas.brush.radius");
+    header.prop("canvas.brush.strength");
 
     let sidebar = this.makeSideBar();
     sidebar.width = 400;
@@ -107,12 +131,15 @@ export class CanvasEditor extends simple.Editor {
     tab.prop("canvas.brush.strength");
     tab.prop("canvas.brush.color");
     tab.prop("canvas.brush.spacing");
+    tab.prop("canvas.brush.scatter");
+    tab.prop("canvas.brush.smear");
 
     tab.useIcons(true);
-    tab.row().prop("canvas.brush.tool");
+    tab.row().prop("canvas.activeBrush");
     tab.useIcons(false);
     tab.prop("canvas.brush.flag[ACCUMULATE]");
 
+    tab.prop("canvas.brush.mixMode");
 
     let names = ["C", "M", "Y", "K"];
 
@@ -133,7 +160,7 @@ export class CanvasEditor extends simple.Editor {
     });
     button2.description = "Optimize pigment spectral at a data level";
 
-    for (let i=0; i<4; i++) {
+    for (let i = 0; i < 4; i++) {
       let panel = tab.panel(names[i]);
 
       let pedit = document.createElement("pigment-editor-x");
@@ -154,15 +181,19 @@ export class CanvasEditor extends simple.Editor {
     ]);
   }
 
-  execDot(x1, y1, dx, dy, t) {
+  * execDot(ds) {
+    let x1 = ds.x, y1 = ds.y;
+
     let r = this.ctx.canvas.brush.radius*devicePixelRatio;
     let dimen = this.ctx.canvas.dimen;
 
-    if (x1 < -r*2 || y1 < -r*2 || x1 > dimen+r*2 || y1 > dimen+r*2) {
+    if (x1 < -r*2 || y1 < -r*2 || x1 > dimen + r*2 || y1 > dimen + r*2) {
       //return;
     }
 
-    this.ctx.canvas.execDot(x1, y1, dx, dy, t);
+    for (let item of this.ctx.canvas.execDot(ds)) {
+      yield item;
+    }
   }
 
   uiHasEvents(e) {
@@ -182,6 +213,14 @@ export class CanvasEditor extends simple.Editor {
       return;
     }
 
+    this.ctx.api.execTool(this.ctx, `brush.stroke()`, {
+      initial : true,
+      x       : e.x,
+      y       : e.y,
+      pressure: getPressure(e)
+    });
+    return;
+
     this.mpos.load(this.getLocalMouse(e.x, e.y));
     this.last_mpos.load(this.mpos);
     this.last_stroke_mpos.load(this.mpos);
@@ -190,8 +229,65 @@ export class CanvasEditor extends simple.Editor {
     this.mdown = e.button === 0;
 
     this.ctx.canvas.beginStroke();
-    this.execDot(this.mpos[0], this.mpos[1], 0.0, 0.0, 0.0);
+    this.queue(this.mpos[0], this.mpos[1], 0.0, 0.0, 0.0, getPressure(e));
     this.flagRedraw();
+  }
+
+
+  _startStrokeTimer() {
+    if (this.strokeTimer !== undefined) {
+      return;
+    }
+
+    this.strokeTimer = window.setInterval(() => {
+      let time = util.time_ms();
+
+      while (util.time_ms() - time < 30) {
+        if (!this.strokeJob) {
+          if (this.strokeQueueCur >= this.strokeQueue.length) {
+            window.clearInterval(this.strokeTimer);
+            this.strokeTimer = undefined;
+
+            this.strokeQueueCur = 0;
+            this.strokeQueue.length = 0;
+
+            this.flagRedraw();
+            return;
+          }
+
+          let si = this.strokeQueueCur;
+          let q = this.strokeQueue;
+
+          let x = q[si++], y = q[si++], dx = q[si++], dy = q[si++];
+          let t = q[si++], pressure = q[si++];
+
+          this.strokeQueueCur = si;
+
+          let ds = new DotSample(x, y, dx, dy, t, pressure);
+          this.strokeJob = this.execDot(ds)[Symbol.iterator]();
+        }
+
+        let item = this.strokeJob.next();
+        if (item.done) {
+          this.strokeJob = undefined;
+        }
+      }
+
+      this.flagRedraw();
+    }, 50);
+  }
+
+  queue(x, y, dx, dy, t, pressure) {
+    this.strokeQueue.push(x);
+    this.strokeQueue.push(y);
+    this.strokeQueue.push(dx);
+    this.strokeQueue.push(dy);
+    this.strokeQueue.push(t);
+    this.strokeQueue.push(pressure);
+
+    if (!this.strokeTimer) {
+      this._startStrokeTimer();
+    }
   }
 
   getLocalMouse(x, y) {
@@ -232,10 +328,9 @@ export class CanvasEditor extends simple.Editor {
           let mpos = new Vector2(this.last_stroke_mpos);
           mpos.interp(this.mpos, t);
 
-          this.execDot(mpos[0], mpos[1], dx, dy, this.last_stroke_t);
+          this.queue(mpos[0], mpos[1], dx, dy, this.last_stroke_t, getPressure(e));
 
           this.last_stroke_t += brush.spacing;
-          this.flagRedraw();
           t += dt;
         }
 

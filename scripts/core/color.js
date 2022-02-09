@@ -125,7 +125,7 @@ export function srgb_gamma_to_linear(c) {
   if (c < 0.04045) {
     return (c < 0.0) ? 0.0 : c*(1.0/12.92);
   } else {
-    return Math.pow((c + 0.055)*(1.0/1.055), 2.4)
+    return Math.pow((c + 0.055)/1.055, 2.4)
   }
 }
 
@@ -217,6 +217,8 @@ export function xyz_to_saturation(x, y, z) {
   return (dr + dg + db)/3.0;
 }
 
+//sRGBMatrix.transpose();
+
 export function rgb_to_xyz(r, g, b) {
   let var_R = r;
   let var_G = g;
@@ -256,6 +258,23 @@ export function rgb_to_xyz(r, g, b) {
 const mulx = 1.0/95.047;
 const muly = 0.01
 const mulz = 1.0/108.08883;
+
+export const sRGBMatrix = new Matrix4();
+let m = sRGBMatrix.$matrix;
+
+m.m11 = 3.2406;
+m.m21 = -1.5372;
+m.m31 = -0.4986;
+
+m.m12 = -0.9689;
+m.m22 = 1.8758;
+m.m32 = 0.0415;
+
+m.m13 = 0.0557;
+m.m23 = -0.2040;
+m.m33 = 1.0570;
+
+m.m44 = 0.0;
 
 export function xyz_to_rgb(X, Y, Z) {
 

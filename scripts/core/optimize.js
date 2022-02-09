@@ -2,12 +2,12 @@ import {
   util, nstructjs, Vector2, Vector3,
   Vector4, Matrix4, Quat, math, keymap
 } from '../path.ux/scripts/pathux.js';
-import {Pigment} from './colormodel.js';
-
-import * as pigment_data from './pigment_data.js';
+import {Pigment, pigment_data} from './colormodel.js';
 
 let kstemps = util.cachering.fromConstructor(Vector4, 64);
 let cstemps = util.cachering.fromConstructor(Vector3, 64);
+
+const MAXIMIZE_GAMUT = true;
 
 export class Optimizer {
   constructor(pigments) {
@@ -15,6 +15,9 @@ export class Optimizer {
     this.last_log = util.time_ms();
     this.rand = new util.MersenneRandom();
     this.stepi = 0;
+
+    this.cdimen = 8;
+    this.cube = new Int8Array(this.cdimen**3);
   }
 
   log() {
@@ -36,10 +39,10 @@ export class Optimizer {
     this.timer = window.setInterval(() => {
       let time = util.time_ms();
 
-      while (util.time_ms() - time < 15) {
+      while (util.time_ms() - time < 60) {
         this.step();
       }
-    }, 30);
+    }, 70);
 
     this.keydown = (e) => {
       if (e.keyCode === keymap["Escape"]) {
@@ -54,10 +57,23 @@ export class Optimizer {
     let ps = this.pigments;
 
     let points = [];
-    let totpoint = 64;
+    let totpoint = 256;
 
-    for (let i = 0; i < 4*totpoint; i++) {
-      points.push(this.rand.random());
+    for (let i = 0; i < totpoint; i++) {
+      let a = this.rand.random();
+      let b = this.rand.random();
+      let c = this.rand.random();
+      let d = 1.0 - a - b - c;
+
+      if (d < 0.0 || d > 1.0) {
+        i--;
+        continue;
+      }
+
+      points.push(a);
+      points.push(b);
+      points.push(c);
+      points.push(d);
     }
 
     for (let i = 0; i < 4; i++) {
@@ -98,6 +114,15 @@ export class Optimizer {
     let min = cstemps.next().addScalar(1e17);
     let max = cstemps.next().addScalar(-1e17);
 
+    let cube = this.cube;
+    let cdimen = this.cdimen;
+
+    if (MAXIMIZE_GAMUT) {
+      cube.fill(0);
+    }
+
+    let totcube = 0;
+
     for (let i = 0; i < points.length; i += 4) {
       ks[0] = points[i];
       ks[1] = points[i + 1];
@@ -108,21 +133,43 @@ export class Optimizer {
 
       min.min(rgb);
       max.max(rgb);
+
+      if (MAXIMIZE_GAMUT) {
+        let x = ~~(rgb[0]*cdimen);
+        let y = ~~(rgb[1]*cdimen);
+        let z = ~~(rgb[2]*cdimen);
+
+        if (x >= 0 && y >= 0 && z >= 0 && x < cdimen && y < cdimen && z < cdimen) {
+          let idx = z*cdimen*cdimen + y*cdimen + x;
+
+          if (!cube[idx]) {
+            cube[idx] = 1;
+            totcube++;
+          }
+        }
+      }
     }
+
+    totcube /= cdimen**3;
 
     let err = 0.0;
 
     for (let i = 0; i < 3; i++) {
-      if (min[i] < 0) {
-        err += -min[i];
-      }
+      if (!MAXIMIZE_GAMUT) {
+        if (min[i] < 0) {
+          err += -min[i];
+        }
 
-      if (max[i] > 1.0) {
-        err += (max[i] - 1.0);
+        if (max[i] > 1.0) {
+          err += (max[i] - 1.0);
+        }
+      } else {
+        err += Math.abs(min[i]);
+        err += Math.abs(max[i] - 1.0);
       }
     }
 
-    return err;
+    return err + (1.0 - totcube);
   }
 
   gradientDescent(points) {
@@ -165,8 +212,21 @@ export class Optimizer {
       return;
     }
 
+    let scale_g;
+
+    if (MAXIMIZE_GAMUT) {
+      let orig = window.COLOR_SCALE;
+      window.COLOR_SCALE += df;
+
+      let r2 = this.error(points);
+      let g = scale_g = (r2 - r1) / df;
+
+      window.COLOR_SCALE = orig;
+      totg += g*g*0.2*0.2;
+    }
+
     r1 /= totg;
-    let fac = -r1*0.5;
+    let fac = -r1*0.875;
 
     for (let i = 0; i < ps.length; i++) {
       let pdata = pigment_data.pigmentKS[ps[i].pigment];
@@ -183,18 +243,111 @@ export class Optimizer {
         }
       }
     }
+
+    if (MAXIMIZE_GAMUT) {
+      //window.COLOR_SCALE += fac*scale_g*0.05;
+    }
+
     console.log("totg:", totg, gs);
   }
 
+  annealing(points) {
+    let ps = this.pigments;
+
+    let r1 = this.error(points);
+
+    let rfac = Math.exp(-this.stepi*0.001)*0.01;
+    let prob = Math.exp(-this.stepi*0.0005)*0.21;
+
+    console.log(rfac.toFixed(4), prob.toFixed(4));
+    let origs = [];
+
+    for (let i = 0; i < ps.length; i++) {
+      let pdata = pigment_data.pigmentKS[ps[i].pigment];
+      let tables = [pdata.K, pdata.S];
+
+      let orig = [pdata.K.concat([]), pdata.S.concat([])];
+      origs.push(orig);
+
+      for (let tablei = 0; tablei < 2; tablei++) {
+        let table = tables[tablei];
+
+        for (let j = 0; j < table.length; j++) {
+          if (Math.random() > 0.1) {
+            continue;
+          }
+
+          table[j] += (Math.random() - 0.5)*rfac;
+          table[j] = Math.max(table[j], 0.0);
+        }
+      }
+    }
+
+    let r2 = this.error(points);
+    let bad = r2 > r1 && Math.random() > prob;
+
+    if (bad) {
+      for (let i = 0; i < ps.length; i++) {
+        let pdata = pigment_data.pigmentKS[ps[i].pigment];
+        let tables = [pdata.K, pdata.S];
+        let orig = origs[i];
+
+        for (let tablei = 0; tablei < 2; tablei++) {
+          let table = tables[tablei];
+          let otable = orig[tablei];
+
+          for (let j = 0; j < table.length; j++) {
+            table[j] = otable[j];
+          }
+        }
+      }
+    }
+  }
+
+  highPassFilter() {
+    let ps = this.pigments;
+
+    for (let i = 0; i < ps.length; i++) {
+      let pdata = pigment_data.pigmentKS[ps[i].pigment];
+      let tables = [pdata.K, pdata.S];
+
+      for (let tablei = 0; tablei < 2; tablei++) {
+        let table = tables[tablei];
+
+        let ma = new util.MovingAvg(8);
+
+        let t = 0.0025;
+
+        for (let j = 0; j < table.length; j++) {
+          table[j] = ma.add(table[j])*t + table[j]*(1.0-t);
+        }
+      }
+    }
+  }
+
   step() {
-    this.rand.seed(~~(this.stepi/4));
+    let rate = MAXIMIZE_GAMUT ? 4 : 8;
+    rate *= 8;
+
+    this.rand.seed(~~(this.stepi/rate));
 
     let points = this.genPoints();
 
-    this.gradientDescent(points);
+    //this.highPassFilter();
+
+    if (1 && MAXIMIZE_GAMUT && (this.stepi%2 === 0)) {
+      this.annealing(points);
+    } else {
+      this.gradientDescent(points);
+    }
 
     let err = this.error(points);
-    console.log("error:", err);
+
+    if (MAXIMIZE_GAMUT) {
+      console.log("error:", this.stepi%rate, err, "COLOR_SCALE:", window.COLOR_SCALE.toFixed(3));
+    } else {
+      console.log("error:", this.stepi%rate, err);
+    }
 
     for (let p of this.pigments) {
       p.updateGen++;
@@ -316,3 +469,20 @@ export function getPigment(name) {
 }
 
 window.writeTables = writeTables;
+
+window.randomizeTables = function () {
+  for (let t of pigment_data.pigmentKS) {
+    let seed = Math.random();
+
+    for (let i = 0; i < t.K.length; i++) {
+      t.K[i] = Math.tent(i*0.05 + seed)*0.5;
+    }
+    for (let i = 0; i < t.S.length; i++) {
+      t.S[i] = Math.tent(i*0.05 + seed + 0.5)*0.5;
+    }
+  }
+
+  for (let p of _appstate.ctx.canvas.pigments) {
+    p.updateGen++;
+  }
+}

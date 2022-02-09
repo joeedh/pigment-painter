@@ -1,7 +1,9 @@
 import {
   simple, Vector2, Vector3, Vector4,
-  nstructjs, util, UIBase
+  nstructjs, util, UIBase, ToolOp
 } from '../path.ux/pathux.js';
+
+import {theme} from './theme.js';
 
 import {PlatformAPI} from '../path.ux/scripts/platforms/platform_base.js';
 import {Canvas, Brush, getSearchOffs} from './canvas.js';
@@ -63,7 +65,8 @@ export class AppState extends simple.AppState {
 
     super.start({
       iconsheet,
-      icons : Icons
+      icons : Icons,
+      theme
     });
 
     if (LOCAL_STORAGE_KEY in localStorage) {
@@ -80,6 +83,33 @@ export class AppState extends simple.AppState {
 }
 
 export function start() {
+  let animReq = undefined;
+
+  function draw() {
+    animReq = undefined;
+
+    if (!window._appstate || !_appstate.screen) {
+      return;
+    }
+
+    let screen = _appstate.screen;
+    for (let sarea of screen.sareas) {
+      let area = sarea.area;
+
+      if (area instanceof CanvasEditor) {
+        area.draw();
+      }
+    }
+  }
+
+  window.redraw_all = function() {
+    if (animReq !== undefined) {
+      return;
+    }
+
+    animReq = requestAnimationFrame(draw);
+  }
+
   window._appstate = new AppState();
   _appstate.start();
 

@@ -1,19 +1,25 @@
 import {simple, util, nstructjs, math, UIBase, Vector3, Vector4} from '../path.ux/scripts/pathux.js';
 import './colormodel.js';
-import {Pigment, PigmentSet} from './colormodel.js';
+import {getLUTImage, Pigment, PigmentSet, USE_LUT_IMAGE} from './colormodel.js';
 import {Icons} from './icon_enum.js';
 import {hsv_to_rgb} from './color.js';
 
 let soffs = new Array(2048);
 
-export function getSearchOffs(n) {
-  if (soffs[n]) {
-    return soffs[n];
+export function getSearchOffs(n, falloffKey, falloffCB) {
+  let key = n;
+
+  if (falloffKey) {
+    key = "" + n + ":" + falloffKey;
+  }
+
+  if (soffs[key]) {
+    return soffs[key];
   }
 
   console.warn("Creating search offs of radius", n);
 
-  let list = soffs[n] = [];
+  let list = soffs[key] = [];
 
   for (let i = -n; i <= n; i++) {
     for (let j = -n; j <= n; j++) {
@@ -29,12 +35,55 @@ export function getSearchOffs(n) {
       w /= n;
 
       w = 1.0 - w;
+
+      if (falloffCB) {
+        w = falloffCB(w);
+      }
+
       list.push([i, j, w, ni, nj]);
     }
   }
 
   return list;
 }
+
+export class DotSample {
+  constructor(x, y, dx, dy, t, pressure) {
+    this.x = x;
+    this.y = y;
+    this.dx = dx;
+    this.dy = dy;
+    this.t = t;
+    this.pressure = pressure;
+  }
+
+  copyTo(b) {
+    b.x = this.x;
+    b.y = this.y;
+    b.dx = this.dx;
+    b.dy = this.dy;
+    b.t = this.t;
+    b.pressure = this.pressure;
+  }
+
+  copy() {
+    let ret = new DotSample();
+    this.copyTo(ret);
+    return ret;
+  }
+}
+
+DotSample.STRUCT = `
+DotSample {
+  x           : float;
+  y           : float;
+  dx          : float;
+  dy          : float;
+  t           : float;
+  pressure    : float;
+}
+`;
+nstructjs.register(DotSample);
 
 let brush_hash = new util.HashDigest();
 
@@ -50,8 +99,8 @@ export const CanvasCommands = {
   BEGINSTROKE: 2
 };
 export const CommandFormat = {
-  [CanvasCommands.SETBRUSH]   : {args: 7},
-  [CanvasCommands.DOT]        : {args: 5},
+  [CanvasCommands.SETBRUSH]   : {args: 9},
+  [CanvasCommands.DOT]        : {args: 6},
   [CanvasCommands.BEGINSTROKE]: {args: 0},
 }
 
@@ -61,6 +110,13 @@ export const BrushFlags = {
   ACCUMULATE: 1
 };
 
+export const BrushMixModes = {
+  PIGMENT : 0,
+  SIMPLE  : 1,
+  CMYK_HSV: 2,
+  HSV     : 3,
+};
+
 export class Brush {
   constructor() {
     //this.color = new Vector4([0.2, 0.0, 0.6, 1.0]); //c
@@ -68,12 +124,136 @@ export class Brush {
     //this.color = new Vector4([1.0, 1.0, 0.0, 1.0]); //y
     //this.color = new Vector4([1.0, 1.0, 0.0, 1.0]);
 
+    this.mixMode = BrushMixModes.PIGMENT;
     this.tool = BrushTools.DRAW;
 
     this.strength = 0.5;
-    this.radius = 5;
-    this.spacing = 0.45;
+    this.radius = 15;
+    this.scatter = 1.0;
+    this.smear = 0.2;
+    this.spacing = 0.25;
     this.flag = 0;
+
+    this.pigments = undefined;
+    this.pigment = undefined;
+  }
+
+  static defineAPI(api, st) {
+    st.color4("color", "color", "Color");
+    st.float("radius", "radius", "Radius").noUnits().range(1, 512);
+    st.float("strength", "strength", "Strength").noUnits().range(0.0, 1.0);
+    st.float("spacing", "spacing", "Spacing").noUnits().range(0.005, 4.0);
+    st.struct("pigment", "pigment", "Pigment", api.mapStruct(Pigment, true));
+    st.float("scatter", "scatter", "Scatter").range(0.0, 10.0).noUnits();
+    st.float("smear", "smear", "smear", "Smear color pickup factor").range(0.0, 1.0).noUnits();
+
+    st.flags("flag", "flag", BrushFlags, "Flags");
+
+    st.enum("mixMode", "mixMode", BrushMixModes, "Mode");
+
+    st.enum("tool", "tool", BrushTools, "Tool")
+      .icons({
+        DRAW : Icons.BRUSH_DRAW,
+        ERASE: Icons.BRUSH_ERASE,
+        SMEAR: Icons.BRUSH_SMEAR
+      });
+
+    st.list("pigments", "pigments", {
+      get(api, list, key) {
+        return list[key];
+      },
+      getKey(api, list, obj) {
+        return list.indexOf(obj);
+      },
+      getStruct(api, list, key) {
+        return api.mapStruct(Pigment);
+      },
+      getIter(api, list) {
+        return list[Symbol.iterator]();
+      }
+    })
+  }
+
+  copyTo(b) {
+    b.color.load(this.color);
+    b.smear = this.smear;
+    b.strength = this.strength;
+    b.radius = this.radius;
+    b.scatter = this.scatter;
+    b.spacing = this.spacing;
+    b.tool = this.tool;
+    b.pigments = this.pigments;
+    b.mixMode = this.mixMode;
+  }
+
+  getMixFunc() {
+    switch (this.mixMode) {
+      case BrushMixModes.PIGMENT:
+        return Pigment.mixRGB;
+      case BrushMixModes.SIMPLE:
+        return Pigment.mixRGB_Simple;
+      case BrushMixModes.CMYK_HSV:
+        return Pigment.mixRGB_CMYK;
+      case BrushMixModes.HSV:
+        return Pigment.mixRGB_HSV;
+    }
+  }
+
+  copy() {
+    let ret = new Brush();
+    this.copyTo(ret);
+    return ret;
+  }
+
+  hash(digest = brush_hash.reset()) {
+    digest.add(this.color);
+    digest.add(this.strength);
+    digest.add(this.radius);
+    digest.add(this.spacing);
+    digest.add(this.mixMode);
+    digest.add(this.scatter);
+    digest.add(this.smear);
+
+    return digest.get();
+  }
+
+  loadSTRUCT(reader) {
+    reader(this);
+  }
+}
+
+Brush.STRUCT = `
+Brush {
+  radius   : float;
+  strength : float;
+  color    : vec4;
+  tool     : int;
+  spacing  : float;
+  flag     : int;
+  mixMode  : int;
+  scatter  : float;
+  smear    : float;
+}
+`;
+simple.DataModel.register(Brush);
+
+let white = new Vector4([1, 1, 1, 1]);
+
+//origdata
+const OR = 0, OG = 1, OB = 2, OA = 3, OID = 4, OMASK = 5, OTOT = 6;
+
+let execVecTemps = util.cachering.fromConstructor(Vector4, 512);
+let execArrTemps = new util.cachering(() => [0, 0], 512);
+
+export class Canvas {
+  constructor(dimen = 700) {
+    this.image = undefined;
+    this.origImage = undefined;
+    this.tempImage = undefined;
+    this.dimen = undefined;
+
+    this.smearPickup = new Vector4();
+    this.smearPickupFirst = true;
 
     this.pigments = new PigmentSet();
     for (let i = 0; i < 4; i++) {
@@ -109,125 +289,56 @@ export class Brush {
     this.pigments[2].pigment = 1;
     this.pigments[3].pigment = 23;
 
-    this.pigment = this.pigments[0];
+    this.stroke_id = 0;
+
+    this.activeBrush = BrushTools.DRAW;
+
+    this.slots = new Array();
+
+    this._last_brush_hash = undefined;
+    this.commands = [];
+
+    this.reset(dimen);
+    this.genImage();
+  }
+
+  get brush() {
+    return this.getBrush(this.activeBrush);
+  }
+
+  set brush(v) {
+    //ensure brush in slot exists
+    this.getBrush(this.activeBrush);
+
+    v.pigments = this.pigments;
+    v.pigment = this.pigments[0];
+
+    this.slots[this.activeBrush] = v;
   }
 
   static defineAPI(api, st) {
-    st.color4("color", "color", "Color");
-    st.float("radius", "radius", "Radius").noUnits().range(1, 512);
-    st.float("strength", "strength", "Strength").noUnits().range(0.0, 1.0);
-    st.float("spacing", "spacing", "Spacing").noUnits().range(0.005, 4.0);
-    st.float("pigment", "pigment", "Pigment", api.mapStruct(Pigment, true));
+    st.struct("brush", "brush", "Brush", api.mapStruct(Brush, true));
 
-    st.flags("flag", "flag", BrushFlags, "Flags");
-
-    st.enum("tool", "tool", BrushTools, "Tool")
+    st.enum("activeBrush", "activeBrush", BrushTools, "Tool")
       .icons({
         DRAW : Icons.BRUSH_DRAW,
         ERASE: Icons.BRUSH_ERASE,
         SMEAR: Icons.BRUSH_SMEAR
       });
-
-    st.list("pigments", "pigments", {
-      get(api, list, key) {
-        return list[key];
-      },
-      getKey(api, list, obj) {
-        return list.indexOf(obj);
-      },
-      getStruct(api, list, key) {
-        return api.mapStruct(Pigment);
-      },
-      getIter(api, list) {
-        return list[Symbol.iterator]();
-      }
-    })
   }
 
-  copyTo(b) {
-    b.color.load(this.color);
-    b.strength = this.strength;
-    b.radius = this.radius;
-    b.spacing = this.spacing;
-    b.tool = this.tool;
-    b.pigments = this.pigments.copy();
-  }
+  getBrush(slot = this.activeBrush) {
+    while (this.slots.length <= slot) {
+      let b = new Brush();
 
-  copy() {
-    let ret = new Brush();
-    this.copyTo(ret);
-    return ret;
-  }
+      b.pigments = this.pigments;
+      b.pigment = this.pigments[0];
 
-  hash(digest = brush_hash.reset()) {
-    digest.add(this.color);
-    digest.add(this.strength);
-    digest.add(this.radius);
-    digest.add(this.spacing);
-
-    return digest.get();
-  }
-
-  loadSTRUCT(reader) {
-    reader(this);
-
-    if (!(this.pigments instanceof PigmentSet)) {
-      let ps = new PigmentSet();
-
-      for (let pigment of this.pigments) {
-        ps.push(pigment);
-      }
-
-      this.pigments = ps;
+      b.tool = this.slots.length;
+      this.slots.push(b);
     }
 
-    this.pigment = this.pigments[0];
-  }
-}
-
-Brush.STRUCT = `
-Brush {
-  radius   : float;
-  strength : float;
-  color    : vec4;
-  pigments : PigmentSet;
-  tool     : int;
-  spacing  : float;
-  flag     : int;
-}
-`;
-simple.DataModel.register(Brush);
-
-let white = new Vector4([1, 1, 1, 1]);
-
-//origdata
-const OR = 0, OG = 1, OB = 2, OA = 3, OID = 4, OMASK = 5, OTOT = 6;
-
-export class Canvas {
-  constructor(dimen = 512) {
-    this.image = new ImageData(dimen, dimen);
-    this.origImage = new Float32Array(dimen*dimen*OTOT);
-    this.tempImage = new Float32Array(dimen*dimen*OTOT);
-
-    this.stroke_id = 0;
-
-    this.brush = new Brush();
-    this.dimen = dimen;
-
-    this._last_brush_hash = undefined;
-
-    this.commands = [];
-
-    let idata = this.image.data;
-    for (let i = 0; i < idata.length; i++) {
-      idata[i] = 255;
-    }
-
-    this.genImage();
-  }
-
-  static defineAPI(api, st) {
-    st.struct("brush", "brush", "Brush", api.mapStruct(Brush, true));
+    return this.slots[slot];
   }
 
   genImage() {
@@ -271,10 +382,12 @@ export class Canvas {
 
   pushSetBrush(brush = this.brush) {
     this.pushCommand(SETBRUSH, brush.color[0], brush.color[1], brush.color[2], brush.color[3],
-      brush.strength, brush.radius, brush.spacing);
+      brush.strength, brush.radius, brush.spacing, brush.tool, brush.mixMode);
   }
 
   beginStroke() {
+    this.smearPickup.zero();
+    this.smearPickupFirst = true;
     this.pushCommand(BEGINSTROKE);
     this.stroke_id++;
   }
@@ -303,7 +416,7 @@ export class Canvas {
     return oi;
   }
 
-  execDot(x1, y1, dx, dy, t) {
+  * execDot(ds) {
     let brush = this.brush;
     let hash = brush.hash()
 
@@ -312,13 +425,18 @@ export class Canvas {
       this.pushSetBrush();
     }
 
-    this.pushCommand(DOT, x1, y1, dx, dy, t);
+    this.pushCommand(DOT, ds.x, ds.y, ds.dx, ds.dy, ds.t, ds.pressure);
 
-    this.execDotIntern(x1, y1, dx, dy, t, brush);
+    this.execDotIntern(ds, brush);
   }
 
-  execDotSmear(x1, y1, dx, dy, t, brush) {
+  execDotSmear(ds, brush) {
+    let {dx, dy, t, pressure} = ds;
+    let x1 = ds.x, y1 = ds.y;
+
     let dpi = UIBase.getDPI();
+
+    let mixRGB = brush.getMixFunc();
 
     //update orig data every dab
     this.stroke_id++;
@@ -330,21 +448,23 @@ export class Canvas {
     let dimen = this.dimen;
     let idata = this.image.data;
 
-    let sradius = radius*brush.spacing*4.0;
+    let sradius = radius*brush.spacing*2.0;
     sradius = Math.max(sradius, 1.0);
 
     let c1 = new Vector4();
     let c2 = new Vector4();
 
-    let w1 = brush.strength**2;
+    let w1 = (pressure*brush.strength)**2;
 
     let ps = brush.pigments;
 
-    for (let p of ps) {
-      p.checkTables();
-    }
+    if (brush.mixMode === BrushMixModes.PIGMENT) {
+      for (let p of ps) {
+        p.checkTables();
+      }
 
-    ps.checkLUT();
+      ps.checkLUT();
+    }
 
     //normalize
     let dlen = Math.sqrt(dx*dx + dy*dy);
@@ -355,8 +475,8 @@ export class Canvas {
     let nx = dx*dlen;
     let ny = dy*dlen;
 
-    dx = nx*sradius;
-    dy = ny*sradius;
+    dx = -nx*sradius;
+    dy = -ny*sradius;
 
     let brushcolor = brush.tool === BrushTools.ERASE ? white : brush.color;
     let colors = [0, 0];
@@ -365,6 +485,10 @@ export class Canvas {
     let cs = new Array(offs.length);
 
     let odata = this.origImage;
+    const scatter = brush.scatter, smear = brush.smear;
+    let smearPickup = this.smearPickup;
+    let avg = new Vector4();
+    let avgtot = 0.0;
 
     for (let off of getSearchOffs(radius)) {
       let nx2 = off[3], ny2 = off[4];
@@ -377,11 +501,18 @@ export class Canvas {
       }
 
       let w = off[2];
-      w = w*w*(3.0 - 2.0*w);
+      if (w < 0.25) {
+        w *= 4.0;
+        w = w*w*(3.0 - 2.0*w);
+      } else {
+        w = 1.0;
+      }
+
+      //w = 1.0;
 
       //w = Math.min(Math.max(w, 0.0), 1.0);
 
-      let det = (nx*ny2 - ny*nx2)*sradius*w*0.25;
+      let det = -(nx*ny2 - ny*nx2)*sradius*w*0.25;
       //let sdet = Math.sign(det);
       //det = Math.abs(det);
       //det = det*det*(3.0 - 2.0*det);
@@ -399,6 +530,10 @@ export class Canvas {
       dx2 += -ny*det;
       dy2 += nx*det;
 
+      let rfac = sradius*brush.scatter;
+      dx2 += (Math.random() - 0.5)*rfac;
+      dy2 += (Math.random() - 0.5)*rfac;
+
       let x2 = ~~(x1 + dx2 + off[0]);
       let y2 = ~~(y1 + dy2 + off[1]);
 
@@ -406,9 +541,6 @@ export class Canvas {
       y2 = Math.min(Math.max(y2, 0), dimen - 1);
 
       let idx = (y*dimen + x)*4;
-
-      ws[0] = 1.0 - w;
-      ws[1] = w;
 
       c1[0] = idata[idx + 0]/255.0;
       c1[1] = idata[idx + 1]/255.0;
@@ -422,14 +554,34 @@ export class Canvas {
       c2[2] = odata[oi + 2];
       c2[3] = odata[oi + 3];
 
+      if (this.smearPickupFirst) {
+        this.smearPickupFirst = false;
+        this.smearPickup.load(c2);
+      }
+
+      if (smear > 0.0) {
+        ws[0] = 1.0 - smear;
+        ws[1] = smear;
+        colors[0] = c2;
+        colors[1] = smearPickup;
+
+        c2.load(mixRGB(ps, colors, ws));
+      }
+
+      avg.add(c2);
+      avgtot++;
+
       odata[oi + OMASK] = Math.max(odata[oi + OMASK] + w);
+
+      ws[0] = 1.0 - w;
+      ws[1] = w;
 
       colors[0] = c1;
       colors[1] = c2;
 
-      let c3 = Pigment.mixRGB(ps, colors, ws);
+      let c3 = mixRGB(ps, colors, ws);
 
-      //c2.interp(c1, 1.0 - alphaw);
+      //let c3 = c2.interp(c1, 1.0 - w);
 
       //make sure current pixel's original data isn't overwritten
       this.getOrigPixel(x, y);
@@ -439,9 +591,28 @@ export class Canvas {
       idata[idx + 2] = c3[2]*255;
       idata[idx + 3] = c3[3]*255;
     }
+
+    if (smear > 0.0 && avgtot > 0) {
+      let w = ((1.0 - smear)**2)*0.8;
+
+      avg.mulScalar(1.0/avgtot);
+
+      colors[0] = smearPickup;
+      colors[1] = avg;
+
+      ws[0] = 1.0 - w;
+      ws[1] = w;
+
+      smearPickup.load(mixRGB(ps, colors, ws));
+    }
   }
 
-  execDotNoAccum(x1, y1, dx, dy, t, brush) {
+  execDotNoAccum(ds, brush) {
+    let {dx, dy, t, pressure} = ds;
+    let x1 = ds.x, y1 = ds.y;
+
+    pressure *= pressure;
+
     let dpi = UIBase.getDPI();
 
     let radius = Math.max(~~(brush.radius*dpi), 1.0);
@@ -454,16 +625,20 @@ export class Canvas {
     let c1 = new Vector4();
     let c2 = new Vector4();
 
-    let w1 = brush.strength;
+    let w1 = brush.strength*pressure;
     let alphaw = w1*w1;
 
     let ps = brush.pigments;
 
-    for (let p of ps) {
-      p.checkTables();
+    if (brush.mixMode === BrushMixModes.PIGMENT) {
+      for (let p of ps) {
+        p.checkTables();
+      }
+
+      ps.checkLUT();
     }
 
-    ps.checkLUT();
+    let mixRGB = brush.getMixFunc();
 
     let brushcolor = brush.tool === BrushTools.ERASE ? white : brush.color;
     let colors = [0, 0];
@@ -496,13 +671,13 @@ export class Canvas {
       if (tdata[oi + OID] !== stroke_id) {
         tdata[oi + OID] = stroke_id;
         tdata[oi] = tdata[oi + 1] = tdata[oi + 2];
-        tdata[oi+3] = 1.0;
+        tdata[oi + 3] = 1.0;
         tdata[oi + OMASK] = 0.0;
       }
 
-      tdata[oi + 0] += (brushcolor[0] - tdata[oi + 0] )*w;
-      tdata[oi + 1] += (brushcolor[1] - tdata[oi + 1] )*w;
-      tdata[oi + 2] += (brushcolor[2] - tdata[oi + 2] )*w;
+      tdata[oi + 0] += (brushcolor[0] - tdata[oi + 0])*w;
+      tdata[oi + 1] += (brushcolor[1] - tdata[oi + 1])*w;
+      tdata[oi + 2] += (brushcolor[2] - tdata[oi + 2])*w;
       tdata[oi + OMASK] = Math.min(tdata[oi + OMASK] + w, 1.0);
 
       c2[0] = tdata[oi];
@@ -518,7 +693,7 @@ export class Canvas {
       ws[0] = 1.0 - w;
       ws[1] = w;
 
-      c2.load(Pigment.mixRGB(ps, colors, ws));
+      c2.load(mixRGB(ps, colors, ws));
 
       //c2.interp(c1, 1.0 - alphaw);
 
@@ -529,13 +704,20 @@ export class Canvas {
     }
   }
 
-  execDotIntern(x1, y1, dx, dy, t, brush) {
+  execDotIntern(ds, brush) {
+    let {dx, dy, t, pressure} = ds;
+    let x1 = ds.x, y1 = ds.y;
+
+    pressure *= pressure;
+
     if (brush.tool === BrushTools.SMEAR) {
-      return this.execDotSmear(x1, y1, dx, dy, t, brush);
+      this.execDotSmear(ds, brush);
+      return;
     }
 
     if (!(brush.flag & BrushFlags.ACCUMULATE)) {
-      return this.execDotNoAccum(x1, y1, dx, dy, t, brush);
+      this.execDotNoAccum(ds, brush);
+      return;
     }
 
     let dpi = UIBase.getDPI();
@@ -544,25 +726,36 @@ export class Canvas {
     let dimen = this.dimen;
     let idata = this.image.data;
 
-    let c1 = new Vector4();
-    let c2 = new Vector4();
+    let c1 = execVecTemps.next().zero();
+    let c2 = execVecTemps.next().zero();
 
-    let w1 = brush.strength**3;
+    let w1 = (pressure*brush.strength)**2;
     let alphaw = w1*w1;
 
     let ps = brush.pigments;
 
-    for (let p of ps) {
-      p.checkTables();
+    if (brush.mixMode === BrushMixModes.PIGMENT) {
+      for (let p of ps) {
+        p.checkTables();
+      }
+
+      ps.checkLUT();
     }
 
-    ps.checkLUT();
+    let mixRGB = brush.getMixFunc();
 
     let brushcolor = brush.tool === BrushTools.ERASE ? white : brush.color;
-    let colors = [0, 0];
-    let ws = [0, 0];
+    let colors = execArrTemps.next();
+    let ws = execArrTemps.next();
 
-    for (let off of getSearchOffs(radius)) {
+    function weightcb(w) {
+      w = w*w*(3.0 - 2.0*w);
+      w = w*w*(3.0 - 2.0*w);
+
+      return w;
+    }
+
+    for (let off of getSearchOffs(radius, "draw", weightcb)) {
       let x = ~~(x1 + off[0]);
       let y = ~~(y1 + off[1]);
 
@@ -570,10 +763,7 @@ export class Canvas {
         continue;
       }
 
-      let w = off[2];
-      w = w*w*(3.0 - 2.0*w);
-      w = w*w*(3.0 - 2.0*w);
-      w *= w1;
+      let w = off[2]*w1;
 
       let idx = (y*dimen + x)*4;
 
@@ -588,7 +778,7 @@ export class Canvas {
       colors[0] = c1;
       colors[1] = brushcolor;
 
-      c2 = Pigment.mixRGB(ps, colors, ws);
+      c2 = mixRGB(ps, colors, ws);
 
       //c2.interp(c1, 1.0 - alphaw);
 
@@ -599,7 +789,14 @@ export class Canvas {
     }
   }
 
-  reset() {
+  reset(dimen) {
+    if (dimen !== undefined) {
+      this.dimen = dimen;
+      this.image = new ImageData(dimen, dimen);
+      this.origImage = new Float32Array(dimen*dimen*OTOT);
+      this.tempImage = new Float32Array(dimen*dimen*OTOT);
+    }
+
     let idata = this.image.data;
     for (let i = 0; i < idata.length; i++) {
       idata[i] = 255;
@@ -650,8 +847,27 @@ export class Canvas {
     }
   }
 
+  loadLutImage() {
+    getLUTImage().then((res) => {
+      console.log("loaded image lookup data", res);
+      this.pigments.loadLUTImage(res.image, res.dimen);
+    });
+  }
+
   loadSTRUCT(reader) {
     reader(this);
+
+    this.reset(this.dimen);
+    this.genImage();
+
+    for (let b of this.slots) {
+      b.pigments = this.pigments;
+      b.pigment = b.pigments[0];
+    }
+
+    if (USE_LUT_IMAGE) {
+      this.loadLutImage();
+    }
 
     /* ensure commands are in right format */
 
@@ -682,9 +898,10 @@ export class Canvas {
 
 Canvas.STRUCT = `
 Canvas {
-  dimen    : int; 
-  brush    : Brush;
-  commands : array(float); 
+  dimen       : int; 
+  pigments    : PigmentSet;
+  slots       : array(Brush);
+  activeBrush : int; 
 }
 `;
 simple.DataModel.register(Canvas);
