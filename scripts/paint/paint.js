@@ -97,8 +97,8 @@ export class ImageOp extends ToolOp {
     let x2 = Math.floor(x + radius + 4.0);
     let y2 = Math.floor(y + radius + 4.0);
 
-    for (let tx=x1; tx<=x2; tx++) {
-      for (let ty=y1; ty<=y2; ty++) {
+    for (let tx = x1; tx <= x2; tx++) {
+      for (let ty = y1; ty <= y2; ty++) {
         this.undoCheckTile(ctx, tx, ty);
       }
     }
@@ -136,7 +136,7 @@ export class ImageOp extends ToolOp {
 
     let tile = {
       x, y, w: tw, h: th,
-      data   : g.getImageData(x, y, tilesize, tilesize)
+      data   : g.getImageData(x, y, tw, th)
     };
 
     this.undoTiles.set(key, tile);
@@ -151,12 +151,20 @@ export class ImageOp extends ToolOp {
     for (let tile of this.undoTiles.values()) {
       let {x, y, w, h, data} = tile;
 
+      let old = g.getImageData(x, y, w, h);
+
       console.log("undo tile!", x, y, data);
       g.putImageData(data, x, y);
+
+      tile.data = old;
     }
 
     ctx.canvas.image = g.getImageData(0, 0, image.width, image.height);
     window.redraw_all();
+  }
+
+  redo(ctx) {
+    this.undo(ctx);
   }
 
   execPost(ctx) {
