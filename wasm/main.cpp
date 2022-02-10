@@ -1,3 +1,82 @@
+//#define THREADS
+
+#include <functional>
+
+#ifdef THREADS
+#include <pthread.h>
+
+#if 0
+// Foreground thread and main entry point
+int main(int argc, char *argv[]) {
+    int         fg_val = 54;
+    int         bg_val = 42;
+    pthread_t   bg_thread;
+
+    // Create the background thread
+    if (pthread_create(&bg_thread, NULL, bg_func, &bg_val)) {
+        perror("Thread create failed");
+        return 1;
+    }
+    // Calculate on the foreground thread
+    fg_val = fibonacci(fg_val);
+    // Wait for background thread to finish
+    if (pthread_join(bg_thread, NULL)) {
+        perror("Thread join failed");
+        return 2;
+    }
+    // Show the result from background and foreground threads
+    printf("Fib(42) is %d, Fib(6 * 9) is %d\n", bg_val, fg_val);
+
+    return 0;
+}
+#endif
+
+class ThreadPool {
+public:
+    ThreadPool(int n) {
+    }
+
+    template <class T>
+    void parallel_for_t(int blocksize, int start, int end, std::function<void(int, T)> threadfunc, T userdata) {
+        for (int i=start; i<end; i++) {
+            threadfunc(i, userdata);
+        }
+    }
+
+    void parallel_for(int blocksize, int start, int end, std::function<void(int)> threadfunc) {
+        for (int i=start; i<end; i++) {
+            threadfunc(i);
+        }
+    }
+private:
+};
+
+#else
+
+class ThreadPool {
+public:
+    ThreadPool(int n) {
+    }
+
+    template <class T>
+    void parallel_for_t(int blocksize, int start, int end, std::function<void(int, T)> threadfunc, T userdata) {
+        for (int i=start; i<end; i++) {
+            threadfunc(i, userdata);
+        }
+    }
+
+    void parallel_for(int blocksize, int start, int end, std::function<void(int)> threadfunc) {
+        for (int i=start; i<end; i++) {
+            threadfunc(i);
+        }
+    }
+private:
+};
+
+#endif
+
+ThreadPool threadPool(5);
+
 #include <cstdio>
 #include <cmath>
 #include <cstring>
@@ -17,6 +96,8 @@ public:
 private:
   int i = 0;
 };
+
+FastRand ditherRand;
 
 struct OffsetType {
     float off[5]; //dx, dy, w, normalizedx, normalizedy
@@ -80,6 +161,11 @@ struct ImageData {
     int tilesize;
     int rowsize; //tiles per row
     int channels; //ImageSlots::ORIG has 6, rgba plus a stroke_id short
+    bool isLinear;
+    int id;
+
+    unsigned char *mipmaps[16];
+    int totmips;
 };
 
 enum BrushFlags {
@@ -128,6 +214,7 @@ void setBrush(float r, float g, float b, float a,
    brush.spacing = spacing;
    brush.smearPickup = smearPickup;
    brush.smearLen = smearLen;
+   brush.smearRate = smearRate;
    brush.scatter = scatter;
    brush.flag = flag;
    brush.tool = tool;
@@ -136,7 +223,29 @@ void setBrush(float r, float g, float b, float a,
 //up to five images at a time
 ImageData images[5] = {0};
 
-void *getImageData(int slot, int width, int height, int tilesize, int channels) {
+int getImageId(int slot) {
+    return images[slot].id;
+}
+
+void freeMipMaps(int slot) {
+  for (int i=0; i<image->totmips; i++) {
+    free(image->mipmaps[i]);
+    image->mipmaps[i] = nullptr;
+  }
+
+  image->totmips = 0;
+}
+
+void makeMipMaps(int slot) {
+  ImageData *image = images + slot;
+  int dimen = std::min(image->width, image->height);
+
+  int levels = (int)ceil(log(dimen) / log(2.0));
+  levels = std::min(levels, (int)(sizeof(image->mipmaps) / sizeof(*image->mipmaps)));
+  
+}
+
+void *getImageData(int slot, int width, int height, int tilesize, int channels, int isLinear, int id) {
     ImageData *image = images + slot;
 
     if (image->width == width && image->height == height && image->data) {
@@ -145,16 +254,67 @@ void *getImageData(int slot, int width, int height, int tilesize, int channels) 
 
     if (image->data) {
         free(image->data);
+        freeMipMaps(slot);
     }
 
     image->data = (unsigned char*)malloc(width*height*channels);
 
+    image->id = id;
+    image->isLinear = isLinear;
     image->width = width;
     image->height = height;
     image->tilesize = tilesize;
     image->rowsize = width / tilesize;
 
     return image->data;
+}
+
+#define SRGB_TABLE_SIZE 8192
+
+float gammaToLinear[8192];
+float linearToGamma[8192];
+
+float srgb_gamma_to_linear(float f) {
+    f = std::min(std::max(f, 0.0f), 0.99999f);
+
+#if 1
+    int i = (int)(f * SRGB_TABLE_SIZE);
+
+    return gammaToLinear[i];
+#else
+  if (f < 0.04045) {
+    return (f < 0.0) ? 0.0 : f*(1.0/12.92);
+  } else {
+    return powf((f + 0.055)/1.055, 2.4f);
+  }
+#endif
+}
+
+float srgb_linear_to_gamma(float f) {
+    f = std::min(std::max(f, 0.0f), 0.99999f);
+#if 1
+    int i = (int)(f * SRGB_TABLE_SIZE);
+
+    return linearToGamma[i];
+#else
+  if (f < 0.0031308) {
+    return (f < 0.0) ? 0.0 : f*12.92;
+  } else {
+    return 1.055*powf(f, 1.0/2.4) - 0.055;
+  }
+#endif
+}
+
+void rgb_to_linear(float c[4]) {
+    c[0] = srgb_gamma_to_linear(c[0]);
+    c[1] = srgb_gamma_to_linear(c[1]);
+    c[2] = srgb_gamma_to_linear(c[2]);
+}
+
+void linear_to_rgb(float c[4]) {
+    c[0] = srgb_linear_to_gamma(c[0]);
+    c[1] = srgb_linear_to_gamma(c[1]);
+    c[2] = srgb_linear_to_gamma(c[2]);
 }
 
 void test() {
@@ -213,17 +373,17 @@ static void copy_v4_v4(float *dst, float *src) {
 }
 
 static void sampleLUT(float *dest, float x, float y, float z, int zoff) {
-    x *= 255.0f;
-    y *= 255.0f;
-    z *= 255.0f;
+    const ImageData *lut = images + ImageSlots::LUT;
 
-    int ix = (int)x;
-    int iy = (int)y;
-    int iz = (int)z;
+    x *= (float)(lut->tilesize - 1);
+    y *= (float)(lut->tilesize - 1);
+    z *= (float)(lut->tilesize - 1);
+
+    int ix = (int)(x+0.5);
+    int iy = (int)(y+0.5);
+    int iz = (int)(z+0.5);
 
     iz += zoff;
-
-    const ImageData *lut = images + ImageSlots::LUT;
 
     int col = iz % lut->rowsize;
     int row = iz / lut->rowsize;
@@ -242,7 +402,17 @@ static void sampleLUT(float *dest, float x, float y, float z, int zoff) {
 }
 
 static void colorToPigments(float color[4], float mix[4]) {
-    sampleLUT(mix, color[0], color[1], color[2], 0);
+
+    if (images[ImageSlots::LUT].isLinear) {
+        float color2[4];
+        copy_v4_v4(color2, color);
+
+        rgb_to_linear(color2);
+        sampleLUT(mix, color2[0], color2[1], color2[2], 0);
+    } else {
+        sampleLUT(mix, color[0], color[1], color[2], 0);
+    }
+
 
     mix[3] = 1.0f - mix[0] - mix[1] - mix[2];
 
@@ -253,7 +423,15 @@ static void colorToPigments(float color[4], float mix[4]) {
 }
 
 static void pigmentToColor(float color[4], float mix[4]) {
-    sampleLUT(color, mix[0], mix[1], mix[2], images[1].tilesize);
+    float rr = (ditherRand.random()-0.5f) / 255.0f;
+    float rg = (ditherRand.random()-0.5f) / 255.0f;
+    float rb = (ditherRand.random()-0.5f) / 255.0f;
+
+    sampleLUT(color, mix[0]+rr, mix[1]+rg, mix[2]+rb, images[1].tilesize);
+
+    if (images[ImageSlots::LUT].isLinear) {
+        linear_to_rgb(color);
+    }
 }
 
 static void mixColorsPigment(float dest[4], float *cs[], float ws[], int totcolor) {
@@ -276,6 +454,11 @@ static void mixColorsPigment(float dest[4], float *cs[], float ws[], int totcolo
         madd_v4_v4fl(delta, color, ws[i]);
         madd_v4_v4fl(mix, mix2, ws[i]);
         alpha += cs[i][3] * ws[i];
+    }
+
+    for (int j=0; j<4; j++) {
+        mix[j] += (ditherRand.random()-0.5)/255.0f;
+        mix[j] = mix[j] < 0.0 ? 0.0 : mix[j];
     }
 
     float tot = mix[0] + mix[1] + mix[2] + mix[3];
@@ -308,6 +491,12 @@ void mixColors(float dest[4], float *cs[], float ws[], int totcolor) {
 
 void execDraw(float x, float y, float dx, float dy, float t, float pressure)
 {
+    //printf("linear lut: %s\n", images[ImageSlots::LUT].isLinear ? "true" : "false");
+
+    //for (int i=-12; i<48; i++) {
+        //printf("  %.3f %.3f\n", srgb_gamma_to_linear((float)i/32.0f), (float)i/32.0f);
+    //}
+
     float radius = brush.radius;
     int n = (int)ceilf(radius);
 
@@ -315,12 +504,16 @@ void execDraw(float x, float y, float dx, float dy, float t, float pressure)
 
     const float strength = brush.strength * pressure * pressure;
 
-    for (const OffsetType &offset : getSearchOffsets(n)) {
+    auto &offsets = getSearchOffsets(n);
+
+    threadPool.parallel_for(8, 0, offsets.size(), [&](int n){
+        OffsetType &offset = offsets[n];
+
         int ix = (int)(x + offset.off[0]);
         int iy = (int)(y + offset.off[1]);
 
         if (ix < 0 || iy < 0 || ix >= image->width || iy >= image->height) {
-            continue;
+            return;
         }
 
         float w = offset.off[2];
@@ -350,7 +543,8 @@ void execDraw(float x, float y, float dx, float dy, float t, float pressure)
         for (int i=0; i<4; i++) {
             image->data[idx+i] = (int)(c2[i] * 255.0f);
         }
-    }
+    });
+
 }
 
 FastRand smearRand;
@@ -496,17 +690,19 @@ void execSmear(float x, float y, float dx, float dy, float t, float pressure)
 
         if (brush.first) {
             copy_v4_v4(brush.smearColor, c2);
+            brush.first = false;
         }
 
         if (smear > 0.0f) {
             ws[0] = 1.0 - smear;
             ws[1] = smear;
+
             colors[0] = c2;
             colors[1] = brush.smearColor;
 
             mixColors(c2, colors, ws, 2);
 
-            add_v4_v4(avg, c2);
+            add_v4_v4(avg, c1);
             totavg += 1.0f;
         }
 
@@ -526,7 +722,11 @@ void execSmear(float x, float y, float dx, float dy, float t, float pressure)
     if (smear > 0.0f && totavg > 0.0f) {
       float *colors[2], ws[2];
 
-      float w2 = ((1.0f - smear)*(1.0f - smear))*brush.smearRate*0.1;
+      //float w2 = ((1.0f - smear)*(1.0f - smear))*brush.smearRate*0.5;
+      float w2 = brush.smearRate*0.5;
+
+      //w2 = std::min(std::max(w2, 0.0f), 1.0f);
+      //w2 = 1.0f;
 
       mul_v4_fl(avg, 1.0f / totavg);
 
@@ -559,7 +759,34 @@ void execDot(float x, float y, float dx, float dy, float t, float pressure)
     }
 }
 
+void initTables() {
+    int steps = SRGB_TABLE_SIZE;
+    float s=0, ds = 1.0 / (steps - 1);
+
+    for (int i=0; i<steps; i++, s += ds) {
+        float c = s;
+
+        if (c < 0.04045) {
+          c = (c < 0.0) ? 0.0 : c*(1.0/12.92);
+        } else {
+          c = powf((c + 0.055f)/1.055f, 2.4f);
+        }
+
+        gammaToLinear[i] = c;
+
+        c = s;
+        if (c < 0.0031308) {
+          c = (c < 0.0) ? 0.0 : c*12.92;
+        } else {
+          c = 1.055*powf(c, 1.0f/2.4f) - 0.055f;
+        }
+
+        linearToGamma[i] = c;
+    }
+}
+
 int main(int argc, const char **argv) {
+    initTables();
 }
 
 }

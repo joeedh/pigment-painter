@@ -2,12 +2,12 @@ import {
   util, nstructjs, Vector2, Vector3,
   Vector4, Matrix4, Quat, math, keymap
 } from '../path.ux/scripts/pathux.js';
-import {Pigment, pigment_data} from './colormodel.js';
+import {Pigment, pigment_data, WIDE_GAMUT} from './colormodel.js';
 
 let kstemps = util.cachering.fromConstructor(Vector4, 64);
 let cstemps = util.cachering.fromConstructor(Vector3, 64);
 
-const MAXIMIZE_GAMUT = true;
+const MAXIMIZE_GAMUT = WIDE_GAMUT;
 
 export class Optimizer {
   constructor(pigments) {
@@ -169,13 +169,17 @@ export class Optimizer {
       }
     }
 
-    return err + (1.0 - totcube);
+    if (MAXIMIZE_GAMUT) {
+      err += 1.0 - totcube;
+    }
+
+    return err;
   }
 
   gradientDescent(points) {
     let ps = this.pigments;
 
-    let df = 0.001;
+    let df = MAXIMIZE_GAMUT ? 0.001 : 0.0001;
     let oneDf = 1.0/df;
 
     let gs = [];
@@ -335,7 +339,7 @@ export class Optimizer {
 
     //this.highPassFilter();
 
-    if (1 && MAXIMIZE_GAMUT && (this.stepi%2 === 0)) {
+    if (1 && (this.stepi%2 === 0)) {
       this.annealing(points);
     } else {
       this.gradientDescent(points);

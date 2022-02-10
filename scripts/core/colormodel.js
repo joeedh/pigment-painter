@@ -2,7 +2,9 @@
 * that doesn't just fit inside the rgb cube,
 * but is also optimized to stretch to fill
 * it*/
-export const WIDE_GAMUT = true;
+export const WIDE_GAMUT = false;
+export const USE_LUT_IMAGE = true;
+export const LINEAR_LUT = false;
 
 import {simple, util, nstructjs, math, UIBase, Vector3, Vector4, Matrix4} from '../path.ux/scripts/pathux.js';
 import * as color from './color.js';
@@ -17,10 +19,10 @@ export const pigment_data = WIDE_GAMUT ? pigment_data_wide : pigment_data_physic
 
 export const lightWaveLengths = [380, 750];
 export const lightFreqRange = [waveLengthToFreq(lightWaveLengths[0]), waveLengthToFreq(lightWaveLengths[1])];
-export const USE_LUT_IMAGE = true;
+
 
 export function getLUTImage() {
-  let img = document.getElementById("lut_wide");
+  let img = document.getElementById(WIDE_GAMUT ? "lut_wide" : "lut_physical");
 
   return new Promise((accept, reject) => {
     function finish() {
@@ -51,7 +53,7 @@ export function getLUTImage() {
 Math.tent = f => 1.0 - Math.abs(Math.fract(f) - 0.5)*2.0;
 let mat_temps = util.cachering.fromConstructor(Matrix4, 32);
 
-window.COLOR_SCALE = WIDE_GAMUT ? 2.0 : 1.0;
+window.COLOR_SCALE = WIDE_GAMUT ? 2.0 : (!LINEAR_LUT ? 1.2 : 1.0);
 
 function g(x, mu, o1, o2) {
   if (x < mu) {
@@ -310,6 +312,40 @@ export class Pigment {
     return st;
   }
 
+  static R2(wavelen, pigments, ws) {
+    let tot = 0.0, K = 0.0, S = 0.0;
+
+    for (let i = 0; i < pigments.length; i++) {
+      let pigment = pigments[i];
+      let w = ws ? ws[i] : 1.0;
+
+      K += pigment.K(wavelen)*w;
+      S += pigment.S(wavelen)*w;
+
+      tot += w;
+    }
+
+    if (tot !== 0.0) {
+      K /= tot;
+      S /= tot;
+    }
+
+    let a = 1.0 + K / S;
+    let b = Math.sqrt(a*a - 1.0);
+
+    function coth(f) {
+      return Math.cosh(f) / Math.sinh(f);
+    }
+
+    let substrate_refl = 0.1;
+    let paint_thickness = 0.001;
+
+    let R = 1.0 - substrate_refl*(a - b*coth(b)*S*paint_thickness);
+    R /= a - substrate_refl + b*coth(b)*S*paint_thickness;
+
+    return R;
+  }
+
   static R(wavelen, pigments, ws) {
     let tot = 0.0, K = 0.0, S = 0.0;
 
@@ -486,6 +522,10 @@ export class Pigment {
     for (let i = 0; i < cs2.length; i++) {
       let c = cs2[i] = mixRGBRets.next().load(colors[i]);
 
+      if (LINEAR_LUT) {
+        c.load(color.rgb_to_linear(c[0], c[1], c[2]));
+      }
+
       wsb[i] = ws ? ws[i] : 1.0/cs2.length;
       ks[i] = ps.sampleLUT(c[0], c[1], c[2]);
 
@@ -510,18 +550,23 @@ export class Pigment {
     }
 
     let res = Pigment.toRGB_intern(pigments, ks2);
-    let color = mixRGBRets.next().load(res);
-    //color.add(delta);
-    color[3] = alpha;
+    let color2 = mixRGBRets.next().load(res);
+    color2.add(delta);
 
-    if (1 || dither) {
-      color[0] += (Math.random() - 0.5)/255.0;
-      color[1] += (Math.random() - 0.5)/255.0;
-      color[2] += (Math.random() - 0.5)/255.0;
-      color[3] += (Math.random() - 0.5)/255.0;
+    if (LINEAR_LUT) {
+      color2.load(linear_to_rgb(color2[0], color2[1], color2[2]));
     }
 
-    return color;
+    color2[3] = alpha;
+
+    if (1 || dither) {
+      color2[0] += (Math.random() - 0.5)/255.0;
+      color2[1] += (Math.random() - 0.5)/255.0;
+      color2[2] += (Math.random() - 0.5)/255.0;
+      color2[3] += (Math.random() - 0.5)/255.0;
+    }
+
+    return color2;
   }
 
   static toRGB_intern(pigments, ks2) {
@@ -577,11 +622,13 @@ export class Pigment {
     ret[3] = 0.0;
 
     ret.mulScalar(mul);
-    ret.load(color.xyz_to_rgb(ret[0], ret[1], ret[2]));
+    ret.load(color.xyz_to_rgb(ret[0], ret[1], ret[2], LINEAR_LUT));
 
-    if (WIDE_GAMUT) {
+    ret[3] = 0.0;
+
+    //if (WIDE_GAMUT) {
       ret.mulScalar(COLOR_SCALE);
-    }
+    //}
 
     return ret;
   }
@@ -999,7 +1046,7 @@ export class Pigment {
     let K = this.K(wavelen);
     let S = this.S(wavelen);
 
-    if (Math.abs(S) > 0.00001) {
+    if (Math.abs(S) < 0.00001) {
       return 0.0;
     }
 
@@ -1434,8 +1481,13 @@ export class PigmentSet extends Array {
           c[1] = lut[li + 1];
           c[2] = lut[li + 2];
 
-          //c = color.linear_to_rgb(c[0], c[1], c[2]);
+          //this is applied earlier in toRGB
+          //if (LINEAR_LUT) {
+            //c = color.linear_to_rgb(c[0], c[1], c[2]);
+          //}
+          //
 
+          //try to be compatible with mixbox?
           idata[idx] = c[0]*255;
           idata[idx + 1] = c[2]*255;
           idata[idx + 2] = c[1]*255;
@@ -1517,6 +1569,8 @@ export class PigmentSet extends Array {
         sx += dimen;
       }
     }
+
+    _appstate.ctx.canvas.updateUnifiedLut(image, dimen);
 
     g.putImageData(image, 0, 0);
 

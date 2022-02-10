@@ -107,6 +107,7 @@ export class CanvasEditor extends simple.Editor {
     let strip = header.row();
     strip.useIcons(true);
 
+    strip.tool("canvas.reset()");
     strip.prop("canvas.activeBrush");
 
     strip.iconbutton(Icons.UNDO, "Undo", () => {
@@ -177,7 +178,8 @@ export class CanvasEditor extends simple.Editor {
     this.keymap = new KeyMap([
       new HotKey("R", [], () => {
         console.log("reset!");
-        this.ctx.canvas.reset();
+        //this.ctx.canvas.reset();
+        this.ctx.api.execTool(this.ctx, "canvas.reset()");
         this.flagRedraw();
       })
     ]);

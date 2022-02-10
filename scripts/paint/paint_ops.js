@@ -6,6 +6,32 @@ import {
 
 import {StrokeProperty, ImageOp, getPressure} from './paint.js';
 import {DotSample} from '../core/canvas.js';
+import {Icons} from '../core/icon_enum.js';
+
+export class ResetCanvasOp extends ImageOp {
+  constructor() {
+    super();
+  }
+
+  static tooldef() {
+    return {
+      uiname  : "Reset Canvas",
+      toolpath: "canvas.reset",
+      icon    : Icons.TRASH,
+    }
+  }
+
+  exec(ctx) {
+    let canvas = ctx.canvas;
+
+    this.undoCheck(ctx, 0, 0, canvas.image.width, canvas.image.height);
+    canvas.image.data.fill(255);
+
+    window.redraw_all();
+  }
+}
+
+ToolOp.register(ResetCanvasOp);
 
 export class BrushStrokeOp extends ImageOp {
   constructor() {
@@ -128,14 +154,22 @@ export class BrushStrokeOp extends ImageOp {
     }
 
     if (this.t - this.last_t > brush.spacing) {
-      let steps = Math.ceil((this.t - this.last_t)/brush.spacing + 0.5);
-      let ds = 1.0/steps
-      let s = ds;
+      let steps = Math.floor((this.t - this.last_t)/brush.spacing + 0.0001);
+      let dt = brush.spacing;
+      let t = this.last_t + dt;
+
+      let ds = dt / (this.t - this.last_t);
 
       let dx = (this.mpos[0] - this.last_stroke_mpos[0])*ds;
       let dy = (this.mpos[1] - this.last_stroke_mpos[1])*ds;
 
-      for (let i = 0; i < steps; i++, s += ds) {
+      for (let i = 0; i < steps+1; i++, t += dt) {
+        if (t >= this.t) {
+          break;
+        }
+
+        let s = (t - this.last_t) / (this.t - this.last_t);
+
         mpos.load(this.last_stroke_mpos).interp(this.mpos, s);
         mpos.floor();
 
@@ -158,7 +192,7 @@ export class BrushStrokeOp extends ImageOp {
         window.redraw_all();
       }
 
-      this.last_t = this.t;
+      this.last_t = t;
       this.last_stroke_pressure = pressure;
       this.last_stroke_mpos.load(this.mpos);
     }

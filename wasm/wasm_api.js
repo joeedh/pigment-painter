@@ -10,19 +10,16 @@ wasm().then(mod => {
 }).then(mod => {
   console.warn("%cwasm ready", "color:green", mod);
   wasmModule = mod;
+  mod.asm.main();
 });
 
 export function wasmReady() {
   return wasmModule;
 }
 
-export const ImageSlots = {
-  MAIN: 0,
-  LUT : 1,
-  ORIG: 2,
-};
+import {ImageSlots} from '../scripts/core/canvas_base.js';
 
-export function makeSharedImageData(width, height, slot = 0, tilesize = width) {
+export function makeSharedImageData(width, height, slot = 0, tilesize = width, linear=false) {
   width = ~~width;
   height = ~~height;
   slot = ~~slot;
@@ -40,7 +37,7 @@ export function makeSharedImageData(width, height, slot = 0, tilesize = width) {
 
   let channels = slot === ImageSlots.ORIG ? 6 : 4;
 
-  let ptr = wasmModule.asm.getImageData(slot, width, height, tilesize, channels);
+  let ptr = wasmModule.asm.getImageData(slot, width, height, tilesize, channels, linear);
   let buf = new Uint8ClampedArray(wasmModule.HEAP8.buffer, ptr, width*height*4);
 
   return new ImageData(buf, width, height);

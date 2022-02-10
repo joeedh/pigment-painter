@@ -2,7 +2,7 @@ import {CSSFont} from '../path.ux/pathux.js';
 
 export const theme = {
   base: {
-    AreaHeaderBG        : 'rgba(200, 200, 200, 0.95)',
+    AreaHeaderBG        : 'rgba(173,173,173,0.95)',
     BasePackFlag        : 0,
     BoxDepressed        : 'rgba(130,130,130, 1)',
     BoxHighlight        : 'rgba(151,208,239, 1)',

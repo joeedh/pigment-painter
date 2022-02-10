@@ -142,9 +142,9 @@ let linear2gamma = new Array(8192);
 let needTables = true;
 
 export function makeGammaTables() {
-  let steps = gamma2linear.length, s = 0, ds = 1.0 / (steps - 1);
+  let steps = gamma2linear.length, s = 0, ds = 1.0/(steps - 1);
 
-  for (let i=0; i<steps; i++, s += ds) {
+  for (let i = 0; i < steps; i++, s += ds) {
     gamma2linear[i] = srgb_gamma_to_linear(s);
     linear2gamma[i] = srgb_linear_to_gamma(s);
   }
@@ -167,11 +167,16 @@ export function rgb_to_linear(r, g, b) {
   ret[2] = b;
 
   for (let i = 0; i < ret.length; i++) {
-    let c = ret[i];
-    //c = Math.min(Math.max(c, 0.0), 0.99999);
-    c = ~~(c*8191);
+    if (0) {
+      let c = ret[i];
 
-    ret[i] = gamma2linear[c];
+      c = Math.min(Math.max(c, 0.0), 0.99999);
+      c = ~~(c*8191);
+
+      ret[i] = gamma2linear[c];
+    } else {
+      ret[i] = srgb_gamma_to_linear(ret[i]);
+    }
   }
 
   return ret;
@@ -187,11 +192,17 @@ export function linear_to_rgb(r, g, b) {
   ret[2] = b;
 
   for (let i = 0; i < ret.length; i++) {
-    let c = ret[i];
-    //c = Math.min(Math.max(c, 0.0), 0.99999);
-    c = ~~(c*8191);
+    if (0) {
 
-    ret[i] = linear2gamma[c];
+      let c = ret[i];
+
+      c = Math.min(Math.max(c, 0.0), 0.99999);
+      c = ~~(c*8191);
+
+      ret[i] = linear2gamma[c];
+    } else {
+      ret[i] = srgb_linear_to_gamma(ret[i]);
+    }
   }
 
   return ret;
@@ -276,7 +287,7 @@ m.m33 = 1.0570;
 
 m.m44 = 0.0;
 
-export function xyz_to_rgb(X, Y, Z) {
+export function xyz_to_rgb(X, Y, Z, noGamma=false) {
 
   let var_X = X;       //X from 0 to  95.047      (Observer = 2°, Illuminant = D65)
   let var_Y = Y;      //Y from 0 to 100.000
@@ -286,20 +297,22 @@ export function xyz_to_rgb(X, Y, Z) {
   let var_G = var_X* -0.9689307 + var_Y*1.87575606 + var_Z*0.04151752
   let var_B = var_X*0.0557101 + var_Y* -0.204021 + var_Z*1.05699
 
-  if (var_R > 0.003130807)
-    var_R = 1.055*(Math.pow(var_R, 1.0/2.4)) - 0.055;
-  else
-    var_R = 12.92*var_R;
+  if (!noGamma) {
+    if (var_R > 0.003130807)
+      var_R = 1.055*(Math.pow(var_R, 1.0/2.4)) - 0.055;
+    else
+      var_R = 12.92*var_R;
 
-  if (var_G > 0.003130807)
-    var_G = 1.055*(Math.pow(var_G, 1.0/2.4)) - 0.055;
-  else
-    var_G = 12.92*var_G;
+    if (var_G > 0.003130807)
+      var_G = 1.055*(Math.pow(var_G, 1.0/2.4)) - 0.055;
+    else
+      var_G = 12.92*var_G;
 
-  if (var_B > 0.003130807)
-    var_B = 1.055*(Math.pow(var_B, 1.0/2.4)) - 0.055;
-  else
-    var_B = 12.92*var_B;
+    if (var_B > 0.003130807)
+      var_B = 1.055*(Math.pow(var_B, 1.0/2.4)) - 0.055;
+    else
+      var_B = 12.92*var_B;
+  }
 
   let ret = xyz_to_rgb_rets.next();
 

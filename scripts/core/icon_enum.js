@@ -29,6 +29,7 @@ export const Icons = {
   ZOOM_IN       : 27,
   BRUSH_DRAW    : 28,
   BRUSH_ERASE   : 29,
-  BRUSH_SMEAR   : 30
+  BRUSH_SMEAR   : 30,
+  TRASH         : 31
 };
 
