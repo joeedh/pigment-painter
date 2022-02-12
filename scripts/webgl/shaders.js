@@ -213,6 +213,10 @@ vec3 clamp2553(vec3 v) {
   return vec3(clamp255(v[0]), clamp255(v[1]), clamp255(v[2]));
 }
 
+float det(vec2 a, vec2 b) {
+  return a[0]*b[1] - a[1]*b[0];
+}
+
 vec4 pigmentMix(vec4 a, vec4 b, float fac) {
   vec4 r;
   
@@ -300,6 +304,10 @@ void main() {
   c = pigmentMix(a, color, fac);
 #elif TOOL == 1
   vec2 dv = vDv*4.0;
+  
+  float det1 = -det(vDv*size, (vUv-0.5));
+  dv += vec2(vDv.y, -vDv.x)*det1*12.0;
+  
   dv.x += hash(vCo, 0.23423)*vSmear[0]*2.0;
   dv.y += hash(vCo, 1.23432)*vSmear[0]*2.0;
   

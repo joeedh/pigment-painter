@@ -1,5 +1,5 @@
 import {ShaderProgram, Texture, FBO, RenderBuffer} from './webgl.js';
-import {Canvas} from '../core/canvas.js';
+import {BrushTools, Canvas} from '../core/canvas.js';
 import {
   util, math, nstructjs, Vector2, Vector3,
   Vector4, Matrix4, Quat, UIBase
@@ -273,15 +273,21 @@ export class WebGLPaint extends Canvas {
       m.mesh.draw(gl, uniforms, defines, Shaders.PaintShader);
       fbo.unbind(gl);
 
-      this.swap();
+      if (true || brush.tool !== BrushTools.SMEAR) {
+        this.swap();
 
-      uniforms.rgba = this.fbos[1].texColor;
-      fbo = this.fbos[0];
-      fbo.bind(gl);
-      m.mesh.draw(gl, uniforms, defines, Shaders.PaintShader);
-      fbo.unbind(gl);
+        uniforms.rgba = this.fbos[1].texColor;
+        fbo = this.fbos[0];
+        fbo.bind(gl);
+        m.mesh.draw(gl, uniforms, defines, Shaders.PaintShader);
+        fbo.unbind(gl);
+      }
 
       i++;
+    }
+
+    if (brush.tool === BrushTools.SMEAR) {
+      //this.swap();
     }
 
     fbo = this.fbos[0];
