@@ -2,9 +2,10 @@
 * that doesn't just fit inside the rgb cube,
 * but is also optimized to stretch to fill
 * it*/
-export const WIDE_GAMUT = false;
+export const WIDE_GAMUT = true;
 export const USE_LUT_IMAGE = true;
 export const LINEAR_LUT = false;
+export const WEBGL_PAINTER = true;
 
 import {simple, util, nstructjs, math, UIBase, Vector3, Vector4, Matrix4} from '../path.ux/scripts/pathux.js';
 import * as color from './color.js';
@@ -20,9 +21,37 @@ export const pigment_data = WIDE_GAMUT ? pigment_data_wide : pigment_data_physic
 export const lightWaveLengths = [380, 750];
 export const lightFreqRange = [waveLengthToFreq(lightWaveLengths[0]), waveLengthToFreq(lightWaveLengths[1])];
 
+let lutImages = {};
 
 export function getLUTImage() {
-  let img = document.getElementById(WIDE_GAMUT ? "lut_wide" : "lut_physical");
+  let url = WIDE_GAMUT ? "lut_wide_256.png" : "lut_physical_258.png";
+  url = "/assets/" + url;
+
+  let img;
+
+  if (url in lutImages) {
+    img = lutImages[url];
+  } else {
+    img = lutImages[url] = document.createElement("img");
+    img.src = url;
+  }
+
+  let i = url.length - 1;
+  while (i > 1 && url[i - 1] !== "_") {
+    i--;
+  }
+
+  let dimen = url.slice(i, url.length);
+  if (dimen.search(/\./) >= 0) {
+    dimen = dimen.slice(0, dimen.search(/\./)).trim();
+  }
+
+  if (isNaN(parseFloat(dimen))) {
+    console.error("dimen:", dimen);
+    throw new Error("could not get tile size from lut name, should be lut_DIMEN.png, e.g. lut_256.png");
+  }
+
+  dimen = parseInt(dimen);
 
   return new Promise((accept, reject) => {
     function finish() {
@@ -34,7 +63,6 @@ export function getLUTImage() {
 
       g.drawImage(img, 0, 0);
       let image = g.getImageData(0, 0, canvas.width, canvas.height);
-      let dimen = parseInt(img.getAttribute("data-dimen"));
 
       accept({
         image,
@@ -42,10 +70,10 @@ export function getLUTImage() {
       });
     }
 
-    if (img.width) {
-      finish();
+    if (!img.width) {
+      img.onload = finish;
     } else {
-      img.onload = finish();
+      finish();
     }
   });
 }
@@ -330,11 +358,11 @@ export class Pigment {
       S /= tot;
     }
 
-    let a = 1.0 + K / S;
+    let a = 1.0 + K/S;
     let b = Math.sqrt(a*a - 1.0);
 
     function coth(f) {
-      return Math.cosh(f) / Math.sinh(f);
+      return Math.cosh(f)/Math.sinh(f);
     }
 
     let substrate_refl = 0.1;
@@ -627,7 +655,7 @@ export class Pigment {
     ret[3] = 0.0;
 
     //if (WIDE_GAMUT) {
-      ret.mulScalar(COLOR_SCALE);
+    ret.mulScalar(COLOR_SCALE);
     //}
 
     return ret;
@@ -1309,29 +1337,29 @@ export class PigmentSet extends Array {
 
     let ulut = this.unifiedLut;
 
-    let cellw = ~~(ulut.width / dimen);
+    let cellw = ~~(ulut.width/dimen);
 
-    let col = z % cellw;
-    let row = ~~(z / cellw);
+    let col = z%cellw;
+    let row = ~~(z/cellw);
 
-    let ix = col * dimen + x;
-    let iy = row * dimen + y;
+    let ix = col*dimen + x;
+    let iy = row*dimen + y;
 
-    let idx = (iy * ulut.width + ix)*4;
+    let idx = (iy*ulut.width + ix)*4;
     let idata = ulut.data;
 
     ret[0] = idata[idx]/255;
-    ret[1] = idata[idx+2]/255;
-    ret[2] = idata[idx+1]/255;
+    ret[1] = idata[idx + 2]/255;
+    ret[2] = idata[idx + 1]/255;
     ret[3] = 1.0 - ret[0] - ret[1] - ret[2];
 
     //if (!isRev && Math.random() > 0.998) {
-      //console.log(ret);
+    //console.log(ret);
     //}
 
     if (!isRev) {
       if (ret[3] > 1.0) {
-        ret.mulScalar(1.0 / ret[3]);
+        ret.mulScalar(1.0/ret[3]);
         ret[3] = 1.0;
       }
     }
@@ -1483,7 +1511,7 @@ export class PigmentSet extends Array {
 
           //this is applied earlier in toRGB
           //if (LINEAR_LUT) {
-            //c = color.linear_to_rgb(c[0], c[1], c[2]);
+          //c = color.linear_to_rgb(c[0], c[1], c[2]);
           //}
           //
 

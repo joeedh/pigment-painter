@@ -69,16 +69,24 @@ export class ImageOp extends ToolOp {
   undoPre(ctx) {
     this.undoTiles = new Map();
     this.undoTileSize = 256;
+
+    this.state = undefined;
   }
 
   _getCanvas(ctx) {
+    if (this.state) {
+      return this.state;
+    }
+
     let image = ctx.canvas.image;
     let canvas, g;
 
-    if (ctx.canvasEditor) {
-      canvas = ctx.canvasEditor.canvas;
-      g = ctx.canvasEditor.g;
-    } else {
+    let editor = this.modalRunning ? this.editor : undefined;
+
+    if (editor) {
+      canvas = editor.canvas;
+      g = editor.g;
+    } else if (image) {
       canvas = document.createElement("canvas");
       g = canvas.getContext("2d");
 
@@ -88,14 +96,22 @@ export class ImageOp extends ToolOp {
       g.putImageData(image, 0, 0);
     }
 
-    return {canvas, g};
+    this.state = {canvas, g};
+    return this.state;
+  }
+
+  modalEnd(was_cancelled) {
+    this.state = undefined;
+    super.modalEnd(was_cancelled);
   }
 
   undoCheck(ctx, x, y, radius) {
-    let x1 = Math.floor(x - radius - 4.0);
-    let y1 = Math.floor(y - radius - 4.0);
-    let x2 = Math.floor(x + radius + 4.0);
-    let y2 = Math.floor(y + radius + 4.0);
+    let tilesize = this.undoTileSize;
+
+    let x1 = Math.floor((x - radius - 4.0)/tilesize + 0.0001);
+    let y1 = Math.floor((y - radius - 4.0)/tilesize + 0.0001);
+    let x2 = Math.ceil((x + radius + 4.0)/tilesize + 0.0001);
+    let y2 = Math.ceil((y + radius + 4.0)/tilesize + 0.0001);
 
     for (let tx = x1; tx <= x2; tx++) {
       for (let ty = y1; ty <= y2; ty++) {
@@ -108,8 +124,8 @@ export class ImageOp extends ToolOp {
     let {canvas, g} = this._getCanvas(ctx);
 
     let image = ctx.canvas.image;
-    let width = image.width;
-    let height = image.height;
+    let width = ctx.canvas.width;
+    let height = ctx.canvas.height;
 
     x = ~~x;
     y = ~~y;
@@ -136,7 +152,7 @@ export class ImageOp extends ToolOp {
 
     let tile = {
       x, y, w: tw, h: th,
-      data   : g.getImageData(x, y, tw, th)
+      data   : ctx.canvas.getImageBlock(x, y, tw, th)
     };
 
     this.undoTiles.set(key, tile);
@@ -160,7 +176,7 @@ export class ImageOp extends ToolOp {
     }
 
     ctx.canvas.image.data.set(g.getImageData(0, 0, image.width, image.height).data);
-    window.redraw_all();
+    window.redraw_all([0, 0], [image.width, image.height]);
   }
 
   redo(ctx) {
@@ -168,6 +184,7 @@ export class ImageOp extends ToolOp {
   }
 
   execPost(ctx) {
+    this.state = undefined;
     window.redraw_all();
   }
 }

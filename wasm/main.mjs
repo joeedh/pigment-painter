@@ -1782,8 +1782,13 @@ var _setBrush = Module["_setBrush"] = function() {
 };
 
 /** @type {function(...*):?} */
-var _getImageData = Module["_getImageData"] = function() {
-  return (_getImageData = Module["_getImageData"] = Module["asm"]["getImageData"]).apply(null, arguments);
+var _getImageId = Module["_getImageId"] = function() {
+  return (_getImageId = Module["_getImageId"] = Module["asm"]["getImageId"]).apply(null, arguments);
+};
+
+/** @type {function(...*):?} */
+var _makeMipMaps = Module["_makeMipMaps"] = function() {
+  return (_makeMipMaps = Module["_makeMipMaps"] = Module["asm"]["makeMipMaps"]).apply(null, arguments);
 };
 
 /** @type {function(...*):?} */
@@ -1792,18 +1797,13 @@ var _malloc = Module["_malloc"] = function() {
 };
 
 /** @type {function(...*):?} */
+var _getImageData = Module["_getImageData"] = function() {
+  return (_getImageData = Module["_getImageData"] = Module["asm"]["getImageData"]).apply(null, arguments);
+};
+
+/** @type {function(...*):?} */
 var _test = Module["_test"] = function() {
   return (_test = Module["_test"] = Module["asm"]["test"]).apply(null, arguments);
-};
-
-/** @type {function(...*):?} */
-var _execDraw = Module["_execDraw"] = function() {
-  return (_execDraw = Module["_execDraw"] = Module["asm"]["execDraw"]).apply(null, arguments);
-};
-
-/** @type {function(...*):?} */
-var _getOrigPixel = Module["_getOrigPixel"] = function() {
-  return (_getOrigPixel = Module["_getOrigPixel"] = Module["asm"]["getOrigPixel"]).apply(null, arguments);
 };
 
 /** @type {function(...*):?} */

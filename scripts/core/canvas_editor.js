@@ -1,7 +1,8 @@
 import {
   simple, UIBase, Vector4, Vector3,
   Vector2, Quat, Matrix4, util, nstructjs,
-  KeyMap, HotKey, eventWasTouch
+  KeyMap, HotKey, eventWasTouch, PackFlags,
+  Container, saveUIData, loadUIData
 } from '../path.ux/scripts/pathux.js';
 import {getSearchOffs, DotSample} from './canvas.js';
 
@@ -12,31 +13,142 @@ import '../paint/paint_ops.js';
 import {getPressure} from '../paint/paint.js';
 import {Icons} from './icon_enum.js';
 
+import './palette.js';
+import {Shaders} from '../webgl/shaders.js';
+import {WEBGL_PAINTER} from './colormodel.js';
+
+export class PaletteEditor extends Container {
+  constructor() {
+    super();
+
+    this.needRebuild = true;
+    this._last_update_key = 0;
+
+    this.active = -1;
+
+    this.label("Palette Editor");
+  }
+
+  rebuild() {
+    if (!this.ctx) {
+      return;
+    }
+
+    let path = this.getAttribute("datapath");
+    if (!path) {
+      return;
+    }
+
+    let pal = this.ctx.api.getValue(this.ctx, path);
+    if (!pal) {
+      console.log("failed to find palette at path " + path);
+      return;
+    }
+
+    let uidata = saveUIData(this, "palette");
+
+    this.needRebuild = false;
+    this.clear();
+    let row;
+
+    row = this.row();
+    row.label(pal.name);
+    row.iconbutton(Icons.SMALL_PLUS, "Add Color", () => {
+      pal.push(new Vector4(this.ctx.canvas.brush.color));
+      pal.save();
+    });
+
+    row = this.row();
+
+    this.overrideClassDefault("colorpickerbutton", "width", 24);
+    this.overrideClassDefault("colorpickerbutton", "height", 24);
+    this.overrideClassDefault("colorpickerbutton", "border-radius", 2);
+
+    let makeButton = (i) => {
+      let path2 = `${path}.colors[${i}].color`;
+
+      let button = row.colorbutton(path2);
+      button.label = "";
+      button.noLabel = true;
+
+      let click = button.click;
+      button.click = (e) => {
+        let color = this.ctx.api.getValue(this.ctx, this.getAttribute("colorpath"));
+
+        this.active = i;
+
+        if (pal[i].vectorDistance(color) > 0.001) {
+          this.ctx.api.setValue(this.ctx, this.getAttribute("colorpath"), pal[i]);
+        } else {
+          click.call(button, e);
+
+        }
+      }
+    }
+    for (let i=0; i<pal.length; i++) {
+      if (i > 0 && (i % 5) === 0) {
+        row = this.row();
+      }
+
+      makeButton(i);
+    }
+
+    loadUIData(this, uidata);
+
+    for (let i=0; i<3; i++) {
+      this.flushUpdate();
+    }
+  }
+
+  update() {
+    if (!this.ctx) {
+      return;
+    }
+
+    let pal = this.ctx.api.getValue(this.ctx, this.getAttribute("datapath"));
+    let key = pal.length;
+    if (key !== this._last_update_key) {
+      this._last_update_key = key;
+      this.needRebuild = true;
+    }
+
+    if (this.needRebuild) {
+      this.rebuild();
+    }
+  }
+
+  static define() {
+    return {
+      tagname : "palette-editor-x",
+      style : "palette-editor"
+    }
+  }
+}
+UIBase.register(PaletteEditor);
+
 export class CanvasEditor extends simple.Editor {
   constructor() {
     super();
+
+    this.glSize = new Vector2();
+    this.glPos = new Vector2();
 
     this.animReq = undefined;
     this.drawParam = true;
     this.canvas = document.createElement("canvas");
     this.g = this.canvas.getContext("2d");
 
-    this.stroke_t = 0.0;
-    this.last_stroke_t = 0.0;
-
-    this.last_stroke_mpos = new Vector2();
-    this.last_mpos = new Vector2();
     this.start_mpos = new Vector2();
     this.mpos = new Vector2();
 
-    this.strokeTimer = undefined;
-    this.strokeJob = undefined;
-    this.strokeQueue = [];
-    this.strokeQueueCur = 0;
-    this.shadow.appendChild(this.canvas);
+    if (!WEBGL_PAINTER) {
+      this.shadow.appendChild(this.canvas);
+    }
 
     this.keymap = undefined;
     this.defineKeyMap();
+
+    this.sidebar = this.makeSideBar();
   }
 
   static define() {
@@ -64,22 +176,76 @@ export class CanvasEditor extends simple.Editor {
     this.animReq = requestAnimationFrame(() => this.draw());
   }
 
+  drawGl() {
+    let dpi = UIBase.getDPI();
+
+    this.glSize.load(this.size).mulScalar(dpi).floor();
+    this.glPos.load(this.pos).mulScalar(dpi).floor();
+
+    let gl = _appstate.gl;
+
+    gl.disable(gl.DEPTH_TEST);
+    gl.disable(gl.BLEND);
+    gl.disable(gl.CULL_FACE);
+    gl.enable(gl.SCISSOR_TEST);
+
+    gl.depthMask(false);
+
+    let w = this.ctx.canvas.width;
+    let h = this.ctx.canvas.height;
+
+    gl.scissor(this.glPos[0], this.glPos[1], this.glSize[0], this.glSize[1]);
+    //gl.viewport(this.glPos[0], this.glPos[1], this.glSize[0], this.glSize[1]);
+    gl.viewport(this.glPos[0], this.glPos[1] + this.glSize[1] - h, w, h);
+
+    gl.clearColor(1.0, 0.7, 0.4, 1.0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+
+    this.ctx.canvas.draw(gl);
+  }
+
   draw() {
     this.animReq = undefined;
+
+    if (WEBGL_PAINTER) {
+      this.drawGl();
+      return;
+    }
 
     let dpi = UIBase.getDPI();
 
     let w = ~~((this.size[0])*dpi);
     let h = ~~(this.size[1]*dpi)
 
-    this.canvas.width = w;
-    this.canvas.height = h;
+    if (this.canvas.width !== w || this.canvas.height !== h) {
+      this.canvas.width = w;
+      this.canvas.height = h;
+    }
+
     this.canvas.style["width"] = (w/dpi) + "px";
     this.canvas.style["height"] = (h/dpi) + "px";
 
     let g = this.g;
 
-    g.putImageData(this.ctx.canvas.image, 0, 0);
+    if (_appstate.haveDirtyRect) {
+      let [min, max] = _appstate.dirtyRect;
+
+      min.floor();
+      max.ceil();
+
+      if (isNaN(min.dot(min)) || isNaN(max.dot(max))) {
+        g.putImageData(this.ctx.canvas.image, 0, 0);
+      } else {
+        let m = new Vector2().load(max).sub(min);
+        console.log(m, _appstate.haveDirtyRect);
+
+        g.putImageData(this.ctx.canvas.image, 0, 0, min[0], min[1], max[0] - min[0], max[1] - min[1]);
+      }
+    } else {
+      g.putImageData(this.ctx.canvas.image, 0, 0);
+    }
 
     g.beginPath();
     let dimen = this.ctx.canvas.dimen;
@@ -90,6 +256,8 @@ export class CanvasEditor extends simple.Editor {
 
   init() {
     super.init();
+
+    let sidebar = this.sidebar;
 
     this.addEventListener("mousedown", (e) => this.on_mousedown(e));
     this.addEventListener("mousemove", (e) => this.on_mousemove(e));
@@ -107,7 +275,6 @@ export class CanvasEditor extends simple.Editor {
     let strip = header.row();
     strip.useIcons(true);
 
-    strip.tool("canvas.reset()");
     strip.prop("canvas.activeBrush");
 
     strip.iconbutton(Icons.UNDO, "Undo", () => {
@@ -117,29 +284,110 @@ export class CanvasEditor extends simple.Editor {
       this.ctx.toolstack.redo(this.ctx);
     });
 
+    strip.tool("canvas.reset()");
+
     header = header.row();
 
     header.prop("canvas.brush.color");
     header.prop("canvas.brush.radius");
     header.prop("canvas.brush.strength");
 
-    let sidebar = this.makeSideBar();
-    sidebar.width = 400;
+    sidebar.width = 240;
     let tab;
 
+    let makeBrushProp = (con, name) => {
+      con = con.row();
+      con.noMarginsOrPadding();
+
+      con.overrideClassDefault("panel", "TitleBackground", "transparent");
+      con.overrideClassDefault("panel", "TitleBorder", "transparent");
+      con.overrideClassDefault("panel", "background-color", "transparent");
+      con.overrideClassDefault("panel", "border-color", "transparent");
+      con.overrideClassDefault("panel", "margin-top", 1);
+      con.overrideClassDefault("panel", "margin-bottom", 1);
+      con.overrideClassDefault("panel", "padding-top", 1);
+      con.overrideClassDefault("panel", "padding-bottom", 1);
+
+      let panel = con.panel("");
+      let row = panel.titleframe;
+
+      /* bypass panel's update bypassing when closed */
+
+      sidebar.update.after(() => {
+        row.flushUpdate(true);
+      });
+
+      row.overrideClassDefault("numslider", "labelOnTop", false);
+      row.overrideClassDefault("numslider_textbox", "labelOnTop", false);
+      row.overrideClassDefault("numslider_simple", "labelOnTop", false);
+
+      let path = `canvas.brush.channels['${name}']`;
+
+      row.useIcons(true);
+      row.prop(path + ".dynamics['pressure'].flag[ENABLED]").iconsheet = 0;
+
+      let ch = this.ctx.api.getValue(this.ctx, path);
+      let uiname = ch.uiName || name;
+
+      let slider = row.slider(path + ".value", {
+        packflag: PackFlags.NO_NUMSLIDER_TEXTBOX
+      });
+      slider.setAttribute("name", uiname);
+      slider.setAttribute("min", ch.prop.range[0]);
+      slider.setAttribute("max", ch.prop.range[1]);
+      slider.setAttribute("step", ch.prop.step);
+      slider.setAttribute("expRate", ch.prop.expRate);
+      slider.setAttribute("decimalPlaces", ch.prop.decimalPlaces);
+
+      panel.iconcheck.remove();
+      panel.titleframe.add(panel.iconcheck);
+
+      for (let dyn of ch.dynamics) {
+        let path2 = `${path}.dynamics['${dyn.name}']`;
+        let row = panel.row();
+
+        let panel2 = panel.panel(dyn.name);
+        panel2.titleframe.useIcons(true);
+        let icon = panel2.titleframe.prop(path2 + ".flag[ENABLED]");
+
+        icon._icon = Icons.LARGE_UNCHECKED;
+        icon._icon_pressed = Icons.LARGE_CHECK;
+
+        sidebar.update.after(() => {
+          panel2.titleframe.flushUpdate(true);
+        });
+
+        panel2.curve1d(path2 + ".curve");
+      }
+      panel.closed = true;
+    }
+
     tab = sidebar.tab("Brush");
-    tab.prop("canvas.brush.radius");
-    tab.prop("canvas.brush.strength");
+    makeBrushProp(tab, "radius");
+    makeBrushProp(tab, "strength");
     tab.prop("canvas.brush.color");
-    tab.prop("canvas.brush.spacing");
-    tab.prop("canvas.brush.scatter");
-    tab.prop("canvas.brush.smear");
-    tab.prop("canvas.brush.smearLen");
-    tab.prop("canvas.brush.smearRate");
+
+    let pal = UIBase.createElement("palette-editor-x");
+    pal.setAttribute("datapath", "palettes[0]");
+    pal.setAttribute("colorpath", "canvas.brush.color");
+
+    tab.add(pal);
 
     tab.useIcons(true);
     tab.row().prop("canvas.activeBrush");
     tab.useIcons(false);
+
+    makeBrushProp(tab, "spacing");
+    makeBrushProp(tab, "scatter");
+    makeBrushProp(tab, "smear");
+    makeBrushProp(tab, "smearLen");
+    makeBrushProp(tab, "smearRate");
+
+    //tab.prop("canvas.brush.radius");
+    tab.prop("canvas.brush.mask");
+
+    makeBrushProp(tab, "alphaLighting");
+
     tab.prop("canvas.brush.flag[ACCUMULATE]");
 
     tab.prop("canvas.brush.mixMode");
@@ -217,81 +465,14 @@ export class CanvasEditor extends simple.Editor {
       return;
     }
 
+    this.start_mpos.load(this.getLocalMouse(e.x, e.y));
+
     this.ctx.api.execTool(this.ctx, `brush.stroke()`, {
       initial : true,
       x       : e.x,
       y       : e.y,
       pressure: getPressure(e)
     });
-    return;
-
-    this.mpos.load(this.getLocalMouse(e.x, e.y));
-    this.last_mpos.load(this.mpos);
-    this.last_stroke_mpos.load(this.mpos);
-
-    this.stroke_t = this.last_stroke_t = 0.0;
-    this.mdown = e.button === 0;
-
-    this.ctx.canvas.beginStroke();
-    this.queue(this.mpos[0], this.mpos[1], 0.0, 0.0, 0.0, getPressure(e));
-    this.flagRedraw();
-  }
-
-
-  _startStrokeTimer() {
-    if (this.strokeTimer !== undefined) {
-      return;
-    }
-
-    this.strokeTimer = window.setInterval(() => {
-      let time = util.time_ms();
-
-      while (util.time_ms() - time < 30) {
-        if (!this.strokeJob) {
-          if (this.strokeQueueCur >= this.strokeQueue.length) {
-            window.clearInterval(this.strokeTimer);
-            this.strokeTimer = undefined;
-
-            this.strokeQueueCur = 0;
-            this.strokeQueue.length = 0;
-
-            this.flagRedraw();
-            return;
-          }
-
-          let si = this.strokeQueueCur;
-          let q = this.strokeQueue;
-
-          let x = q[si++], y = q[si++], dx = q[si++], dy = q[si++];
-          let t = q[si++], pressure = q[si++];
-
-          this.strokeQueueCur = si;
-
-          let ds = new DotSample(x, y, dx, dy, t, pressure);
-          this.strokeJob = this.execDot(ds)[Symbol.iterator]();
-        }
-
-        let item = this.strokeJob.next();
-        if (item.done) {
-          this.strokeJob = undefined;
-        }
-      }
-
-      this.flagRedraw();
-    }, 50);
-  }
-
-  queue(x, y, dx, dy, t, pressure) {
-    this.strokeQueue.push(x);
-    this.strokeQueue.push(y);
-    this.strokeQueue.push(dx);
-    this.strokeQueue.push(dy);
-    this.strokeQueue.push(t);
-    this.strokeQueue.push(pressure);
-
-    if (!this.strokeTimer) {
-      this._startStrokeTimer();
-    }
   }
 
   getLocalMouse(x, y) {
@@ -307,43 +488,6 @@ export class CanvasEditor extends simple.Editor {
 
   on_mousemove(e) {
     this.mpos.load(this.getLocalMouse(e.x, e.y));
-
-    if (this.mdown) {
-      let brush = this.ctx.canvas.brush;
-      let r = brush.radius*UIBase.getDPI();
-
-      let dis = this.mpos.vectorDistance(this.last_mpos)/r;
-      this.stroke_t += dis;
-
-      if (this.stroke_t - this.last_stroke_t >= brush.spacing) {
-        let dx = this.mpos[0] - this.last_stroke_mpos[0];
-        let dy = this.mpos[1] - this.last_stroke_mpos[1];
-
-        let steps = (this.stroke_t - this.last_stroke_t)/brush.spacing;
-        steps = Math.floor(steps + 0.001);
-
-        let dt = 1.0/steps;
-        let t = dt;
-
-        dx /= steps;
-        dy /= steps;
-
-        for (let i = 0; i < steps; i++) {
-          let mpos = new Vector2(this.last_stroke_mpos);
-          mpos.interp(this.mpos, t);
-
-          this.queue(mpos[0], mpos[1], dx, dy, this.last_stroke_t, getPressure(e));
-
-          this.last_stroke_t += brush.spacing;
-          t += dt;
-        }
-
-        this.last_stroke_t = this.stroke_t;
-        this.last_stroke_mpos.load(this.mpos);
-      }
-    }
-
-    this.last_mpos.load(this.mpos);
   }
 
   getKeyMaps() {
@@ -360,7 +504,6 @@ export class CanvasEditor extends simple.Editor {
 
   on_mouseup(e) {
     this.mpos.load(this.getLocalMouse(e.x, e.y));
-    this.last_mpos.load(this.mpos);
     this.mdown = false;
   }
 
@@ -369,6 +512,8 @@ export class CanvasEditor extends simple.Editor {
 
     this.canvas.style["position"] = "fixed";
     this.canvas.style["z-index"] = "0";
+    this.canvas.style["left"] = this.pos[0] + "px";
+    this.canvas.style["top"] = (this.pos[1] + 100) + "px";
 
     this.flagRedraw();
   }

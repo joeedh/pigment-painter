@@ -10,6 +10,7 @@ import {makeSharedImageData} from '../../wasm/wasm_api.js';
 let soffs = new Array(2048);
 
 import {CommandFormat, ImageSlots, CanvasCommands} from './canvas_base.js';
+
 export * from './canvas_base.js';
 
 import {wasmModule, wasmReady} from '../../wasm/wasm_api.js';
@@ -56,13 +57,16 @@ export function getSearchOffs(n, falloffKey, falloffCB) {
 }
 
 export class DotSample {
-  constructor(x, y, dx, dy, t, pressure) {
+  constructor(x, y, dx, dy, t, pressure, radius, spacing, strength) {
     this.x = x;
     this.y = y;
     this.dx = dx;
     this.dy = dy;
     this.t = t;
     this.pressure = pressure;
+    this.radius = radius;
+    this.spacing = spacing;
+    this.strength = strength;
   }
 
   copyTo(b) {
@@ -72,6 +76,9 @@ export class DotSample {
     b.dy = this.dy;
     b.t = this.t;
     b.pressure = this.pressure;
+    b.radius = this.radius;
+    b.spacing = this.spacing;
+    b.strength = this.strength;
   }
 
   copy() {
@@ -89,6 +96,9 @@ DotSample {
   dy          : float;
   t           : float;
   pressure    : float;
+  radius      : float;
+  spacing     : float;
+  strength    : float;
 }
 `;
 nstructjs.register(DotSample);
@@ -99,7 +109,7 @@ export * from './brush.js';
 import {
   Brush, BrushChannel, BrushChannelSet, BrushFlags,
   BrushMixModes, BrushTools, DynamicFlags, InputDynamic,
-  BrushDynamics
+  BrushDynamics, BrushAlpha
 } from './brush.js';
 
 let white = new Vector4([1, 1, 1, 1]);
@@ -111,11 +121,14 @@ let execVecTemps = util.cachering.fromConstructor(Vector4, 512);
 let execArrTemps = new util.cachering(() => [0, 0], 512);
 
 export class Canvas {
-  constructor(dimen = 700) {
+  constructor(dimen = 1350) {
     this.image = undefined;
     this.origImage = undefined;
     this.tempImage = undefined;
     this.dimen = undefined;
+
+    this.width = dimen;
+    this.height = dimen;
 
     this.haveWasmImage = false;
 
@@ -167,6 +180,8 @@ export class Canvas {
 
     this.reset(dimen);
     this.genImage();
+
+    this.tempCanvas = undefined;
   }
 
   get brush() {
@@ -196,6 +211,25 @@ export class Canvas {
         ERASE: Icons.BRUSH_ERASE,
         SMEAR: Icons.BRUSH_SMEAR
       });
+  }
+
+  getImageBlock(x, y, w, h) {
+    let image = new ImageData(w, h);
+
+    let buf1 = this.image.data.buffer;
+    let buf2 = image.data.buffer;
+    let width = this.image.width;
+
+    console.log(x, y, w, h, " ", width);
+
+    for (let i = 0; i < h; i++) {
+      let row = new Uint8Array(buf2, i*w*4, w*4);
+      console.log(i, row.length, w*4);
+
+      row.set(new Uint8Array(buf1, ((y + i)*width + x)*4, w*4));
+    }
+
+    return image;
   }
 
   getBrush(slot = this.activeBrush) {
@@ -582,6 +616,14 @@ export class Canvas {
   execDotInternWasm(ds, brush) {
     const dpi = UIBase.getDPI();
 
+    if (brush.mask && wasmModule.asm.getImageId(ImageSlots.ALPHA) !== brush.mask) {
+      BrushAlpha.checkWasmLoaded(brush.mask);
+
+      console.warn("Sending brush alpha mask data to wasm");
+    }
+
+    brush = brush.asApplied({pressure: ds.pressure});
+
     wasmModule.asm.setBrush(
       brush.color[0],
       brush.color[1],
@@ -595,9 +637,11 @@ export class Canvas {
       brush.smearLen,
       brush.smearRate,
       brush.flag,
-      brush.tool);
+      brush.tool,
+      brush.mask,
+      brush.alphaLighting);
 
-    wasmModule.asm.execDot(ds.x, ds.y, ds.dx, ds.dy, ds.t, ds.pressure);
+    wasmModule.asm.execDot(ds.x, ds.y, ds.dx, ds.dy, ds.t, 1.0);
   }
 
   execDotIntern(ds, brush) {
@@ -800,6 +844,8 @@ export class Canvas {
 
   loadLutImage() {
     getLUTImage().then((res) => {
+      console.log("RES", res);
+
       if (wasmReady()) {
         let dimen = res.dimen;
 

@@ -139,7 +139,7 @@ export const theme = {
   },
 
   curvewidget: {
-    CanvasBG    : 'rgba(117,79,79, 1)',
+    CanvasBG    : 'rgb(44,44,44)',
     CanvasHeight: 256,
     CanvasWidth : 256,
   },
@@ -427,6 +427,11 @@ export const theme = {
   treeview: {
     itemIndent: 10,
     rowHeight : 18,
+  },
+
+  popup: {
+    "background-color": "rgba(200,200,200,1.0)",
+    "border-radius"   : 15,
   },
 
   vecPopupButton: {

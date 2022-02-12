@@ -1,5 +1,7 @@
 import {
-  Curve1D, EnumProperty, FloatProperty, nstructjs, simple, util, Vec3Property, Vec4Property, Vector3, Vector4
+  Curve1D, EnumProperty, FloatProperty, nstructjs,
+  simple, util, Vec3Property, Vec4Property, Vector3,
+  Vector4, ToolProperty
 } from '../path.ux/scripts/pathux.js';
 import {Pigment} from './colormodel.js';
 import {Icons} from './icon_enum.js';
@@ -12,7 +14,8 @@ let brush_hash = new util.HashDigest();
 export const BrushTools = {
   DRAW : 0,
   SMEAR: 1,
-  ERASE: 2
+  ERASE: 2,
+  TEST : 3
 };
 
 export const BrushFlags = {
@@ -27,7 +30,8 @@ export const BrushMixModes = {
 };
 
 export const DynamicFlags = {
-  ENABLED: 1<<0
+  ENABLED     : 1<<0,
+  NOT_MY_CURVE: 1<<1
 };
 
 export const BrushAlphaFlags = {
@@ -40,6 +44,7 @@ export class BrushAlpha {
     this.image = undefined;
     this.tilesize = undefined;
     this.flag = 0;
+    this.id = 0;
   }
 
   get ready() {
@@ -54,16 +59,30 @@ export class BrushAlpha {
     }
   }
 
-  static wasmLoad(name) {
+  static wasmLoad(id_or_name) {
+    let name = id_or_name;
+
+    if (typeof id_or_name === "number") {
+      name = this.getAlphaFromId(id_or_name).name;
+    }
+
     let image = this.images[name];
 
-    let data = makeSharedImageData(image.width, image.height, ImageSlots.ALPHA, image.tilesize, false);
-    data.set(image.data);
+    let data = makeSharedImageData(image.image.width, image.image.height, ImageSlots.ALPHA, image.tilesize, false, image.id);
+    data.data.set(image.image.data);
+
+    wasmModule.asm.makeMipMaps(ImageSlots.ALPHA);
 
     image.wasmLoaded = true;
   }
 
-  static checkWasmLoaded(name) {
+  static checkWasmLoaded(id_or_name) {
+    let name = id_or_name;
+
+    if (typeof id_or_name === "number") {
+      name = this.getAlphaFromId(id_or_name).name;
+    }
+
     if (!wasmReady()) {
       return;
     }
@@ -81,7 +100,7 @@ export class BrushAlpha {
 
   static register(name, image, tilesize) {
     this.images[name] = {
-      image, tilesize, wasmLoaded: false, id: this.idgen++
+      name, image, tilesize, wasmLoaded: false, id: this.idgen++
     };
 
     let k = name;
@@ -89,6 +108,7 @@ export class BrushAlpha {
 
     this.prop.values[k] = v;
     this.prop.keys[v] = k;
+    this.prop.ui_value_names[k] = ToolProperty.makeUIName(name);
   }
 
   static loadAlpha(name, url, tilesize) {
@@ -99,6 +119,9 @@ export class BrushAlpha {
       img.onload = (e) => {
         let canvas = document.createElement("canvas");
         let g = canvas.getContext("2d");
+
+        g.globalCompositeOperation = "copy";
+        g.globalAlpha = 0.0;
 
         canvas.width = img.width;
         canvas.height = img.height;
@@ -111,6 +134,14 @@ export class BrushAlpha {
         accept(this.images[name]);
       }
     });
+  }
+
+  static getAlphaFromId(id) {
+    for (let k in this.images) {
+      if (this.images[k].id === id) {
+        return this.images[k];
+      }
+    }
   }
 
   load() {
@@ -127,7 +158,8 @@ export class BrushAlpha {
     }
   }
 }
-BrushAlpha.prop = new EnumProperty();
+
+BrushAlpha.prop = new EnumProperty(0, {NONE: 0});
 BrushAlpha.idgen = 1;
 BrushAlpha.images = {};
 
@@ -139,11 +171,13 @@ BrushAlpha {
 `;
 simple.DataModel.register(BrushAlpha);
 
+window._BrushAlpha = BrushAlpha;
+
 BrushAlpha.loadAlpha("brush1", "/assets/brush1.png", 512);
 
 export class InputDynamic {
-  constructor(name) {
-    this.curve = new Curve1D();
+  constructor(name, curve = new Curve1D()) {
+    this.curve = curve;
     this.name = "" + name;
 
     this.flag = 0;
@@ -168,7 +202,9 @@ export class InputDynamic {
   static defineAPI(api, st) {
     st.string("name", "name", "Name").readOnly();
     st.curve1d("curve", "curve", "Curve");
-    st.flags("flag", "flag", DynamicFlags);
+    st.flags("flag", "flag", DynamicFlags).icons({
+      ENABLED: Icons.ENABLE_PRESSURE
+    });
 
     st.float("inputMin", "inputMin", "Input Min")
       .range(-10.0, 10.0)
@@ -190,7 +226,7 @@ export class InputDynamic {
 
   evaluate(f) {
     if (!this.enabled) {
-      return f;
+      return 1.0;
     }
 
     f = Math.min(Math.max(f, this.inputMin), this.inputMax);
@@ -202,10 +238,17 @@ export class InputDynamic {
     return f;
   }
 
+  ensureWrite() {
+    if (this.flag & DynamicFlags.NOT_MY_CURVE) {
+      this.curve = this.curve.copy();
+      this.flag &= ~DynamicFlags.NOT_MY_CURVE;
+    }
+  }
+
   copyTo(b) {
     b.name = this.name;
-    b.curve.load(this.curve);
-    b.flag = this.flag;
+    b.curve = this.curve;
+    b.flag = this.flag | DynamicFlags.NOT_MY_CURVE;
     b.inputMin = this.inputMin;
     b.inputMax = this.inputMax;
     b.outputMin = this.outputMin;
@@ -213,9 +256,15 @@ export class InputDynamic {
   }
 
   copy() {
-    let ret = new InputDynamic();
+    let ret = new InputDynamic(undefined, undefined);
     this.copyTo(ret);
     return ret;
+  }
+
+  loadSTRUCT(reader) {
+    reader(this);
+
+    this.flag &= ~DynamicFlags.NOT_MY_CURVE;
   }
 }
 
@@ -239,23 +288,7 @@ export class BrushDynamics {
   }
 
   static defineAPI(api, st) {
-    st.list("mappings", "mappings", {
-      get(api, list, key) {
-        return list.get(key);
-      },
-      getKey(api, list, obj) {
-        return obj.name;
-      },
-      getLength(api, list) {
-        return list.mappings.size;
-      },
-      getIter(api, list) {
-        return list.values()[Symbol.iterator]();
-      },
-      getStruct(api, list, key) {
-        return api.mapStruct(InputDynamic);
-      }
-    });
+
     return st;
   }
 
@@ -344,11 +377,33 @@ export class BrushChannel {
     return this.getValue();
   }
 
+  set value(v) {
+    this.setValue(v);
+  }
+
   static defineAPI(api, st) {
     st.string("name", "name", "Name").readOnly();
     st.string("uiName", "uiName", "Display Name").readOnly();
-    st.float("value", "value", "Value");
-    st.struct("dynamics", "dynamics", "Dynamics", api.mapStruct(BrushDynamics, true));
+    st.float("value", "value", "Value").noUnits().decimalPlaces(3);
+
+    st.list("dynamics", "dynamics", {
+      get(api, list, key) {
+        return list.get(key);
+      },
+      getKey(api, list, obj) {
+        return obj.name;
+      },
+      getLength(api, list) {
+        return list.mappings.size;
+      },
+      getIter(api, list) {
+        return list.values()[Symbol.iterator]();
+      },
+      getStruct(api, list, key) {
+        return api.mapStruct(InputDynamic);
+      }
+    });
+    //st.struct("dynamics", "dynamics", "Dynamics", api.mapStruct(BrushDynamics, true));
   }
 
   copyTo(b) {
@@ -361,7 +416,9 @@ export class BrushChannel {
 
   copy() {
     let ret = new BrushChannel();
+
     this.copyTo(ret);
+
     return ret;
   }
 
@@ -477,31 +534,20 @@ export class BrushChannelSet extends Array {
 
   static defaultTemplate() {
     return {
-      strength : {value: 0.5, range: [0.0, 1.0], penPressure: true},
-      radius   : {value: 35.0, range: [0.001, 5000.0]},
-      scatter  : {value: 2.75, range: [0.0, 100.0]},
-      smear    : {value: 0.33, range: [0.0, 5.0]},
-      smearLen : {value: 3.5, range: [0.0, 50.0]},
-      smearRate: 1.2,
-      spacing  : {value: 0.25, range: [0.0, 5.0]},
-      color    : new Vector4([0.0, 0.0, 0.0, 1.0]),
+      strength     : {value: 0.5, range: [0.0, 1.0], penPressure: true},
+      radius       : {value: 35.0, range: [0.001, 5000.0]},
+      scatter      : {value: 2.75, range: [0.0, 100.0]},
+      smear        : {value: 0.33, range: [0.0, 5.0]},
+      smearLen     : {value: 3.5, range: [0.0, 50.0]},
+      smearRate    : 1.2,
+      spacing      : {value: 0.25, range: [0.001, 5.0]},
+      alphaLighting: {value: 0.25, range: [0.0, 1.0], uiName : "light"},
+      color        : new Vector4([0.0, 0.0, 0.0, 1.0]),
     }
   }
 
   static defineAPI(api, st) {
-    st.list("channels", "channels", {
-      get(api, list, key) {
-        return list.nameMap.get(key);
-      },
 
-      getKey(api, list, obj) {
-        return key.name;
-      },
-
-      getStruct(api, list, key) {
-        return api.mapStruct(BrushChannel, true);
-      }
-    });
   }
 
   copy() {
@@ -512,6 +558,11 @@ export class BrushChannelSet extends Array {
     }
 
     return ret;
+  }
+
+  push(ch) {
+    super.push(ch);
+    this.nameMap.set(ch.name, ch);
   }
 
   ensure(name, propClass) {
@@ -546,7 +597,7 @@ export class BrushChannelSet extends Array {
       throw new Error("unknown channel " + name);
     }
 
-    this.get(name).evaluate(inputs);
+    return this.get(name).evaluate(inputs);
   }
 
   getValue(name) {
@@ -583,7 +634,15 @@ export class BrushChannelSet extends Array {
       }
     }
 
-    return this.fromTemplate(def2);
+    this.fromTemplate(def2);
+
+    for (let k in def) {
+      let v = def[k];
+
+      if (typeof v === "object" && v.uiName) {
+        this.get(k).uiName = v.uiName;
+      }
+    }
   }
 
   /**
@@ -613,6 +672,10 @@ export class BrushChannelSet extends Array {
 
       if (v.value !== undefined) {
         ch.setValue(v.value);
+      }
+
+      if ("uiName" in v) {
+        ch.uiName = v.uiName;
       }
 
       if ("range" in v) {
@@ -678,6 +741,8 @@ export class Brush {
     this.mixMode = BrushMixModes.PIGMENT;
     this.tool = BrushTools.DRAW;
 
+    this.mask = 0; //brush alpha, 0 means none
+
     this.flag = 0;
 
     this.pigments = undefined;
@@ -685,8 +750,11 @@ export class Brush {
   }
 
   static defineAPI(api, st) {
+    let def = st.enum("mask", "mask", BrushAlpha.prop, "Brush Alpha");
+    def.data = BrushAlpha.prop;
+
     st.color4("color", "color", "Color");
-    st.float("radius", "radius", "Radius").noUnits().range(1, 512);
+    st.float("radius", "radius", "Radius").noUnits().range(1, 512).step(0.5);
     st.float("strength", "strength", "Strength").noUnits().range(0.0, 1.0);
     st.float("spacing", "spacing", "Spacing").noUnits().range(0.005, 4.0);
     st.struct("pigment", "pigment", "Pigment", api.mapStruct(Pigment, true));
@@ -695,7 +763,24 @@ export class Brush {
     st.float("smearLen", "smearLen", "Smear Len", "Smear Length").range(0.0, 50.0).noUnits();
     st.float("smearRate", "smearRate", "Smear Rate", "Smear Rate").range(0.0, 50.0).noUnits();
 
-    st.struct("channels", "channels", "Channels", api.mapStruct(BrushChannelSet, true));
+    //st.struct("channels", "channelSet", "Channels", api.mapStruct(BrushChannelSet, true));
+    st.list("channels", "channels", {
+      get(api, list, key) {
+        return list.get(key);
+      },
+
+      getKey(api, list, obj) {
+        return key.name;
+      },
+
+      getStruct(api, list, key) {
+        return api.mapStruct(BrushChannel, true);
+      },
+
+      getLength(api, list) {
+        return list.nameMap.size;
+      }
+    });
 
     st.flags("flag", "flag", BrushFlags, "Flags");
 
@@ -733,6 +818,8 @@ export class Brush {
   }
 
   copyTo(b) {
+    b.channels = this.channels.copy();
+
     b.color.load(this.color);
     b.smear = this.smear;
     b.smearLen = this.smearLen;
@@ -744,6 +831,9 @@ export class Brush {
     b.tool = this.tool;
     b.pigments = this.pigments;
     b.mixMode = this.mixMode;
+    b.mask = this.mask;
+
+    b.flag = this.flag;
   }
 
   getMixFunc() {
@@ -800,6 +890,7 @@ Brush {
   smearLen : float;
   smearRate: float;
   channels : BrushChannelSet;
+  mask     : int;
 }
 `;
 simple.DataModel.register(Brush);
