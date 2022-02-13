@@ -19,7 +19,8 @@ export const BrushTools = {
 };
 
 export const BrushFlags = {
-  ACCUMULATE: 1
+  ACCUMULATE: 1,
+  FOLLOW    : 2, //rotate to follow stroke direction
 };
 
 export const BrushMixModes = {
@@ -185,6 +186,8 @@ export class InputDynamic {
     this.inputMax = 1.0;
     this.outputMin = 0.0;
     this.outputMax = 1.0;
+
+    this.factor = 1.0;
   }
 
   get enabled() {
@@ -222,6 +225,9 @@ export class InputDynamic {
       .range(-10.0, 10.0)
       .noUnits();
 
+    st.float("factor", "factor", "Factor")
+      .range(0.0, 1.0)
+      .noUnits();
   }
 
   evaluate(f) {
@@ -235,7 +241,8 @@ export class InputDynamic {
     f = this.curve.evaluate(f);
 
     f = f*(this.outputMax - this.outputMin) + this.outputMin;
-    return f;
+
+    return f*this.factor + 1.0 - this.factor;
   }
 
   ensureWrite() {
@@ -253,6 +260,7 @@ export class InputDynamic {
     b.inputMax = this.inputMax;
     b.outputMin = this.outputMin;
     b.outputMax = this.outputMax;
+    b.factor = this.factor;
   }
 
   copy() {
@@ -277,6 +285,7 @@ InputDynamic {
   inputMax  : float;
   outputMin : float;
   outputMax : float;
+  factor    : float;
 }
 `;
 nstructjs.register(InputDynamic);
@@ -371,6 +380,10 @@ export class BrushChannel {
 
     this.dynamics = new BrushDynamics();
     this.dynamics.add("pressure");
+    this.dynamics.add("tiltx");
+    this.dynamics.add("tilty");
+    this.dynamics.add("tilt_angle");
+    this.dynamics.add("angle");
   }
 
   get value() {
@@ -453,14 +466,33 @@ export class BrushChannel {
       }
     }
 
-    return f;
+    let range = this.prop.range;
+    return Math.min(Math.max(f, range[0]), range[1]);
   }
 
   loadSTRUCT(reader) {
+    let dynamics = util.list(this.dynamics.mappings.keys());
+
+    let oldprop = this.prop;
+
     reader(this);
 
     this.propClass = this.prop.constructor;
 
+    for (let key of dynamics) {
+      this.dynamics.ensure(key);
+    }
+
+    if (0) {
+      /*restore ui limits*/
+      this.prop.range = oldprop.range;
+      this.prop.baseUnit = oldprop.baseUnit;
+      this.prop.displayUnit = oldprop.displayUnit;
+      this.prop.step = oldprop.step;
+      this.prop.expRate = oldprop.expRate;
+      this.prop.decimalPlaces = oldprop.decimalPlaces;
+      this.prop.stepIsRelative = oldprop.stepIsRelative;
+    }
   }
 
   uiName(name) {
@@ -535,14 +567,16 @@ export class BrushChannelSet extends Array {
   static defaultTemplate() {
     return {
       strength     : {value: 0.5, range: [0.0, 1.0], penPressure: true},
-      radius       : {value: 35.0, range: [0.001, 5000.0]},
+      radius       : {value: 35.0, range: [0.25, 5000.0]},
       scatter      : {value: 2.75, range: [0.0, 100.0]},
       smear        : {value: 0.33, range: [0.0, 5.0]},
       smearLen     : {value: 3.5, range: [0.0, 50.0]},
       smearRate    : 1.2,
       spacing      : {value: 0.25, range: [0.001, 5.0]},
-      alphaLighting: {value: 0.25, range: [0.0, 1.0], uiName : "light"},
+      alphaLighting: {value: 0.25, range: [0.0, 1.0], uiName: "light"},
       color        : new Vector4([0.0, 0.0, 0.0, 1.0]),
+      angle        : {value: 0.0, range: [-360.0, 360.0], decimalPlaces: 1, step: 1},
+      squish       : {value: 0.0, range: [0.0, 1.0]},
     }
   }
 
@@ -636,11 +670,34 @@ export class BrushChannelSet extends Array {
 
     this.fromTemplate(def2);
 
+    let keys = ["range", "step", "decimalPlaces", "expRate", "stepIsRelative", "baseUnit", "displayUnit"];
+
     for (let k in def) {
       let v = def[k];
+      let ch = this.get(k);
 
-      if (typeof v === "object" && v.uiName) {
-        this.get(k).uiName = v.uiName;
+      if (typeof v === "object") {
+        if (v.uiName) {
+          ch.uiName = v.uiName;
+        }
+
+        if (v.range) {
+          ch.prop.range = v.range;
+        }
+
+        if (v.min) {
+          ch.prop.range[0] = v.min;
+        }
+
+        if (v.max) {
+          ch.prop.range[1] = v.min;
+        }
+
+        for (let key of keys) {
+          if (key in v) {
+            ch.prop[key] = v[key];
+          }
+        }
       }
     }
   }

@@ -20,7 +20,7 @@ export class WebGLPaint extends Canvas {
   constructor(dimen = 900) {
     dimen *= UIBase.getDPI();
     dimen = ~~dimen;
-    
+
     super(dimen);
 
     this.image = undefined;
@@ -173,8 +173,14 @@ export class WebGLPaint extends Canvas {
         dvs   : [],
         rs    : [],
         smear : [],
+        angle : [],
+        squish: [],
         tottri: 0,
       });
+    }
+
+    function six(f) {
+      return [f, f, f, f, f, f];
     }
 
     let i = 0;
@@ -183,9 +189,9 @@ export class WebGLPaint extends Canvas {
 
       let s = ds.strength;
       let r = ds.radius;
-      let rad = 100.0*ds.radius / this.width;
+      let rad = 100.0*ds.radius/this.width;
 
-      console.log("R", rad);
+      //console.log("R", rad);
       if (isNaN(rad)) {
         throw new Error("NAN!");
       }
@@ -196,7 +202,7 @@ export class WebGLPaint extends Canvas {
       let {smear, smearLen, smearRate, scatter} = brush;
 
       let smearParams = [];
-      for (let i=0; i<6; i++) {
+      for (let i = 0; i < 6; i++) {
         smearParams.push(scatter/this.width);
         smearParams.push(smear);
         smearParams.push(smearLen/this.width);
@@ -208,10 +214,12 @@ export class WebGLPaint extends Canvas {
 
       meshes[i].cos = meshes[i].cos.concat(rect(x - r, y - r, r*2, r*2, true));
       meshes[i].uvs = meshes[i].uvs.concat(rect(0, 0, 1, 1, false));
-      meshes[i].ss = meshes[i].ss.concat([s, s, s, s, s, s]);
-      meshes[i].rs = meshes[i].rs.concat([rad, rad, rad, rad, rad, rad]);
+      meshes[i].ss = meshes[i].ss.concat(six(s));
+      meshes[i].rs = meshes[i].rs.concat(six(rad));
       meshes[i].dvs = meshes[i].dvs.concat(dvs);
       meshes[i].smear = meshes[i].smear.concat(smearParams);
+      meshes[i].squish = meshes[i].squish.concat(six(ds.squish));
+      meshes[i].angle = meshes[i].angle.concat(six(ds.angle));
       meshes[i].tottri += 2;
 
       tottri += 2;
@@ -229,14 +237,15 @@ export class WebGLPaint extends Canvas {
 
     let lutRowSize = this.lutWidth/this.lutDimen;
 
+    /*
     console.log({
       lutTexelSize: 0.5/this.lutWidth, lutRowSize, lutWidth: this.lutWidth, lutHeight: this.lutHeight,
       lutDimen    : this.lutDimen
-    });
+    });//*/
 
     let uniforms = {
       size        : new Vector2([this.width, this.height]),
-      invSize        : new Vector2([1.0/this.width, 1.0/this.height]),
+      invSize     : new Vector2([1.0/this.width, 1.0/this.height]),
       aspect      : this.width/this.height,
       rgba        : this.fbos[1].texColor,
       color       : this.brush.color,
@@ -257,6 +266,8 @@ export class WebGLPaint extends Canvas {
       m.mesh.addLayer(2, "dv", m.dvs);
       m.mesh.addLayer(1, "radius", m.rs);
       m.mesh.addLayer(4, "smear", m.smear);
+      m.mesh.addLayer(1, "angle", m.angle);
+      m.mesh.addLayer(1, "squish", m.squish);
     }
 
     let fbo;

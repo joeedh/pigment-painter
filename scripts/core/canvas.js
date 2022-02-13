@@ -57,7 +57,8 @@ export function getSearchOffs(n, falloffKey, falloffCB) {
 }
 
 export class DotSample {
-  constructor(x, y, dx, dy, t, pressure, radius, spacing, strength) {
+  constructor(x, y, dx, dy, t, pressure, radius,
+              spacing, strength, angle_degrees, squish) {
     this.x = x;
     this.y = y;
     this.dx = dx;
@@ -67,6 +68,8 @@ export class DotSample {
     this.radius = radius;
     this.spacing = spacing;
     this.strength = strength;
+    this.angle = angle_degrees / 180.0 * Math.PI;
+    this.squish = squish;
   }
 
   copyTo(b) {
@@ -79,6 +82,8 @@ export class DotSample {
     b.radius = this.radius;
     b.spacing = this.spacing;
     b.strength = this.strength;
+    b.angle = this.angle;
+    b.squish = this.squish;
   }
 
   copy() {
@@ -99,6 +104,8 @@ DotSample {
   radius      : float;
   spacing     : float;
   strength    : float;
+  angle       : float;
+  squish      : float;
 }
 `;
 nstructjs.register(DotSample);

@@ -259,9 +259,10 @@ export class CanvasEditor extends simple.Editor {
 
     let sidebar = this.sidebar;
 
-    this.addEventListener("mousedown", (e) => this.on_mousedown(e));
-    this.addEventListener("mousemove", (e) => this.on_mousemove(e));
-    this.addEventListener("mouseup", (e) => this.on_mouseup(e));
+    this.addEventListener("pointerdown", (e) => this.on_mousedown(e));
+    this.addEventListener("pointermove", (e) => this.on_mousemove(e));
+    this.addEventListener("pointerup", (e) => this.on_mouseup(e));
+    this.addEventListener("pointercancel", (e) => this.on_mouseup(e));
 
     this.addEventListener("blur", () => {
       this.mdown = false;
@@ -358,7 +359,11 @@ export class CanvasEditor extends simple.Editor {
         });
 
         panel2.curve1d(path2 + ".curve");
+        panel2.prop(path2 + ".factor");
+
+        panel2.closed = true;
       }
+
       panel.closed = true;
     }
 
@@ -382,6 +387,8 @@ export class CanvasEditor extends simple.Editor {
     makeBrushProp(tab, "smear");
     makeBrushProp(tab, "smearLen");
     makeBrushProp(tab, "smearRate");
+    makeBrushProp(tab, "angle");
+    makeBrushProp(tab, "squish");
 
     //tab.prop("canvas.brush.radius");
     tab.prop("canvas.brush.mask");
@@ -389,7 +396,7 @@ export class CanvasEditor extends simple.Editor {
     makeBrushProp(tab, "alphaLighting");
 
     tab.prop("canvas.brush.flag[ACCUMULATE]");
-
+    tab.prop("canvas.brush.flag[FOLLOW]");
     tab.prop("canvas.brush.mixMode");
 
     let names = ["C", "M", "Y", "K"];
@@ -461,6 +468,8 @@ export class CanvasEditor extends simple.Editor {
   }
 
   on_mousedown(e) {
+    console.log("mouse event!", e);
+
     if (this.uiHasEvents(e)) {
       return;
     }

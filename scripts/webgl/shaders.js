@@ -79,6 +79,8 @@ in float strength;
 in vec2 dv;
 in float radius;
 in vec4 smear;
+in float squish;
+in float angle;
 
 out vec4 vSmear;
 out vec2 vUv;
@@ -86,12 +88,30 @@ out vec2 vCo;
 out float vStrength;
 out vec2 vDv;
 out float vRadius;
+out float vAngle;
+out float vSquish;
+
+vec2 rot2d(vec2 p, float th) {
+  float costh = cos(th);
+  float sinth = sin(th);
+
+  return vec2(
+    costh*p.x + sinth*p.y,
+    costh*p.y - sinth*p.x    
+  );
+}
 
 void main() {
   gl_Position = vec4(co*2.0 - 1.0, 0.0, 1.0);
   
+    
+  vec2 uv2 = uv - 0.5;  
+  uv2 = rot2d(uv2, -angle);
+  uv2.x /= (1.0 - squish*0.99);
+  uv2 += 0.5;
+  
   vCo = co;
-  vUv = uv;
+  vUv = uv2;
   vStrength = strength;
   vDv = normalize(dv) * invSize;
   vRadius = radius;
@@ -123,6 +143,8 @@ in float vStrength;
 in vec2 vDv;
 in float vRadius;
 in vec4 vSmear;
+in float vAngle;
+in float vSquish;
 
 out vec4 fragColor;
 
@@ -322,7 +344,7 @@ void main() {
 }
 `,
   uniforms  : {},
-  attributes: ["co", "uv", "strength", "dv", "radius", "smear"]
+  attributes: ["co", "uv", "strength", "dv", "radius", "smear", "squish", "angle"]
 }
 
 
