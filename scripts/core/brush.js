@@ -380,6 +380,7 @@ export class BrushChannel {
 
     this.dynamics = new BrushDynamics();
     this.dynamics.add("pressure");
+    this.dynamics.add("tilt");
     this.dynamics.add("tiltx");
     this.dynamics.add("tilty");
     this.dynamics.add("tilt_angle");
@@ -577,6 +578,7 @@ export class BrushChannelSet extends Array {
       color        : new Vector4([0.0, 0.0, 0.0, 1.0]),
       angle        : {value: 0.0, range: [-360.0, 360.0], decimalPlaces: 1, step: 1},
       squish       : {value: 0.0, range: [0.0, 1.0]},
+      soft         : {value: 0.25, range: [0.0, 1.0], step: 0.05, decimalPlaces : 3},
     }
   }
 

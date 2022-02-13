@@ -27,6 +27,7 @@ export class ResetCanvasOp extends ImageOp {
     let canvas = ctx.canvas;
 
     this.undoCheck(ctx, 0, 0, canvas.width, canvas.height);
+
     if (canvas.image) {
       canvas.image.data.fill(255);
     } else {
@@ -52,6 +53,7 @@ export class BrushStrokeOp extends ImageOp {
     this.last_stroke_pressure = 1.0;
     this.last_stroke_squish = 0.0;
     this.last_stroke_angle = 0.0;
+    this.last_stroke_soft = 0.0;
     this.last_stroke_mpos = new Vector2();
     this.last_stroke_mpos2 = new Vector2();
     this.last_stroke_mpos3 = new Vector2();
@@ -117,6 +119,13 @@ export class BrushStrokeOp extends ImageOp {
     //this.finish();
   }
 
+  on_pointercancel(e) {
+    console.error("POINTER CANCEL!");
+    this.modalEnd(false);
+    this.ctx.toolstack.undo();
+    window.redraw_all();
+  }
+
   on_pointermove(e, customPressure) {
     let ctx = this.modal_ctx;
 
@@ -130,6 +139,7 @@ export class BrushStrokeOp extends ImageOp {
     let pressure = customPressure !== undefined ? customPressure : e.pressure;
     let tiltx = e.tiltX/180.0 + 0.5;
     let tilty = e.tiltY/180.0 + 0.5;
+    let tilt = Math.sqrt((tiltx*2.0 - 1.0)**2 + (tilty*2.0 - 1.0))**2;
 
     //tiltx = Math.cos(this.T)*0.5 + 0.5;
     this.T += 0.2;
@@ -141,6 +151,7 @@ export class BrushStrokeOp extends ImageOp {
       this.last_stroke_mpos.load(mpos);
       this.last_stroke_mpos2.load(mpos);
       this.last_stroke_mpos3.load(mpos);
+
       this.first = false;
       was_first = true;
 
@@ -155,7 +166,7 @@ export class BrushStrokeOp extends ImageOp {
 
     let angle = Math.atan2(dy, dx)/Math.PI/2.0 + 0.5;
 
-    const mappings = {pressure, tiltx, tilty, tilt_angle, angle};
+    const mappings = {pressure, tiltx, tilty, tilt_angle, angle, tilt};
 
     let dpi = this.inputs.dpi.getValue();
     let brush = ctx.canvas.brush;
@@ -164,10 +175,12 @@ export class BrushStrokeOp extends ImageOp {
     let strength = brush.channels.evaluate("strength", mappings);
     let squish = brush.channels.evaluate("squish", mappings);
     let bangle = brush.channels.evaluate("angle", mappings);
+    let soft = brush.channels.evaluate("soft", mappings);
 
     if (was_first) {
       this.last_stroke_angle = bangle;
       this.last_stroke_squish = squish;
+      this.last_soft = soft;
     }
 
     let dis = Math.sqrt(dx*dx + dy*dy);
@@ -178,7 +191,8 @@ export class BrushStrokeOp extends ImageOp {
     if (was_first) {
       console.log("FIRST", mpos[0], mpos[1]);
 
-      let ds = new DotSample(mpos[0], mpos[1], dx, dy, 0.0, pressure, radius, spacing, strength, bangle, squish);
+      let ds = new DotSample(mpos[0], mpos[1], dx, dy, 0.0, pressure, radius,
+        spacing, strength, bangle, squish, soft);
 
       this.inputs.stroke.push(ds);
       this.last_mpos.load(mpos);
@@ -197,7 +211,7 @@ export class BrushStrokeOp extends ImageOp {
 
     if (this.t - this.last_t > spacing) {
       let steps = Math.floor((this.t - this.last_t)/spacing + 0.0001);
-      let dt = spacing;
+      let dt = spacing*2.0;
       let t = this.last_t + dt;
 
       let ds = dt/(this.t - this.last_t);
@@ -304,6 +318,7 @@ export class BrushStrokeOp extends ImageOp {
         let pressure2 = this.last_stroke_pressure;
         let squish2 = this.last_stroke_squish;
         let bangle2 = this.last_stroke_angle;
+        let soft2 = this.last_stroke_soft;
 
         let skip = mpos[0] < -radius*2 || mpos[0] >= ctx.canvas.width + radius*2;
         skip = skip || (mpos[1] < -radius*2 || mpos[1] >= ctx.canvas.height + radius*2);
@@ -317,9 +332,10 @@ export class BrushStrokeOp extends ImageOp {
         pressure2 += (pressure - pressure2)*s;
         squish2 += (squish - squish2)*s;
         bangle2 += (bangle - bangle2)*s;
+        soft2 += (soft - soft2)*s;
 
         //if (isNaN(bangle2)) {
-          //debugger;
+        //debugger;
         //}
         //bangle2 = isNaN(bangle2) ? bangle : bangle2;
 
@@ -329,16 +345,20 @@ export class BrushStrokeOp extends ImageOp {
           bangle2 += Math.atan2(dy, dx)*180.0/Math.PI + 90.0;
         }
 
-        let ds1 = new DotSample(mpos[0], mpos[1], dx, dy, t2, pressure2, radius, spacing, strength, bangle2, squish2);
+        let ds1 = new DotSample(mpos[0], mpos[1], dx, dy, t2, pressure2, radius, spacing,
+          strength, bangle2, squish2, soft2);
 
         this.inputs.stroke.push(ds1);
         this.execDot(ctx, ds1);
       }
 
+      this.last_soft = soft;
+
       this.last_t = t;
       this.last_stroke_pressure = pressure;
       this.last_stroke_squish = squish;
       this.last_stroke_angle = bangle;
+      this.last_stroke_soft = soft;
 
       this.last_stroke_mpos3.load(this.last_stroke_mpos2);
       this.last_stroke_mpos2.load(this.last_stroke_mpos);
@@ -351,18 +371,18 @@ export class BrushStrokeOp extends ImageOp {
   }
 
   execDot(ctx, ds) {
-    let radius = ctx.brush.radius*this.inputs.dpi.getValue();
+    let radius = Math.ceil(ds.radius*this.inputs.dpi.getValue()*1.1);
 
     let [min, max] = this.rect;
 
     min.loadXY(ds.x, ds.y);
     max.load(min);
-    min.addScalar(-radius*1.25);
-    max.addScalar(radius*1.25);
+    min.addScalar(~~(-radius*1.25));
+    max.addScalar(~~(radius*1.25));
 
     window.redraw_all(min, max);
 
-    this.undoCheck(ctx, ds.x, ds.y, radius);
+    this.undoCheck(ctx, ds.x, ds.y, 2*radius);
 
     for (let step of ctx.canvas.execDot(ds)) {
 

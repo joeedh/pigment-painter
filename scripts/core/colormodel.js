@@ -1,8 +1,8 @@
-/*whether to use optimize spectral data
+/*whether to use optimized spectral data
 * that doesn't just fit inside the rgb cube,
 * but is also optimized to stretch to fill
 * it*/
-export const WIDE_GAMUT = false;
+export const WIDE_GAMUT = true;
 
 export const USE_LUT_IMAGE = true;
 export const LINEAR_LUT = false;

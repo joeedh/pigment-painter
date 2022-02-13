@@ -85,7 +85,7 @@ export class FBO {
 
     this._check(gl);
 
-    debuglog("fbo create");
+    debuglog("fbo create", this.size[0], this.size[1]);
 
     if (this.fbo && this.gl) {
       this.destroy(this.gl);
@@ -935,6 +935,34 @@ export class GPUVertexAttr {
     this.normalized = false;
     this.contextGen = undefined;
     this.id = gpu_vert_idgen++;
+    this.lastIdx = undefined;
+  }
+
+  copyTo(b, upload, gl) {
+    b.type = this.type;
+    b.size = this.size;
+    b.buf = this.buf;
+    b.data = this.data;
+
+    b.perfhint = this.perfhint;
+    b.elemSize = this.elemSize;
+    b.normalized = this.normalized;
+    b.contextGen = this.contextGen;
+    b.id = this.id;
+    b.lastIdx = this.lastIdx;
+
+    if (b.data) {
+      let cls = b.data.constructor;
+      if (cls === Array) {
+        b.data = util.list(b.data);
+      } else {
+        b.data = new cls(b.data);
+      }
+
+      if (gl && upload) {
+        this.upload(gl, b, b.data);
+      }
+    }
   }
 
   upload(gl, args, data) {
@@ -1013,6 +1041,8 @@ export class GPUVertexAttr {
       return;
     }
 
+    this.lastIdx = idx;
+
     if (this.buf && this.contextGen !== gl.contextGen) {
       console.warn("reuploading vertex attribute");
 
@@ -1025,6 +1055,10 @@ export class GPUVertexAttr {
     //console.error(idx, this.elemSize, this.type, this.normalized, this.buf);
     gl.bindBuffer(this.target, this.buf);
     gl.vertexAttribPointer(idx, this.elemSize, this.type, this.normalized, 0, 0);
+  }
+
+  unbind(gl, idx=this.lastIdx) {
+    gl.disableVertexAttribArray(idx);
   }
 
   destroy(gl) {
@@ -1059,6 +1093,24 @@ export class RenderBuffer {
 
     this._layers[name] = buf;
     this[name] = buf;
+
+    return buf;
+  }
+
+  add(gl, name, buf) {
+    if (this[name] && this[name] !== buf) {
+      this[name].destroy(gl);
+    }
+
+    this[name] = buf;
+    this._layers[name] = buf;
+  }
+
+  remove(name) {
+    let buf = this[name];
+
+    delete this[name];
+    delete this._layers[name];
 
     return buf;
   }

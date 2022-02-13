@@ -68,9 +68,33 @@ ToolProperty.register(StrokeProperty);
 export class ImageOp extends ToolOp {
   undoPre(ctx) {
     this.undoTiles = new Map();
-    this.undoTileSize = 256;
+    this.undoTileSize = 512;
 
     this.state = undefined;
+  }
+
+  onUndoDestroy() {
+    console.error("undo destroy!");
+
+    for (let tile of this.undoTiles.values()) {
+      if (tile.data.destroy) {
+        tile.data.destroy();
+      }
+    }
+  }
+
+  calcMemSize(ctx) {
+    return this.calcUndoMem(ctx);
+  }
+
+  calcUndoMem(ctx) {
+    let sum = 0;
+
+    for (let tile of this.undoTiles.values()) {
+      sum += tile.data.memSize;
+    }
+
+    return sum;
   }
 
   _getCanvas(ctx) {
@@ -113,17 +137,17 @@ export class ImageOp extends ToolOp {
     let x2 = Math.ceil((x + radius + 4.0)/tilesize + 0.0001);
     let y2 = Math.ceil((y + radius + 4.0)/tilesize + 0.0001);
 
+    x1 = Math.max(x1, 0);
+    y1 = Math.max(y1, 0);
+
     for (let tx = x1; tx <= x2; tx++) {
       for (let ty = y1; ty <= y2; ty++) {
-        this.undoCheckTile(ctx, tx, ty);
+        this.undoCheckTile(ctx, tx*tilesize, ty*tilesize);
       }
     }
   }
 
   undoCheckTile(ctx, x, y) {
-    let {canvas, g} = this._getCanvas(ctx);
-
-    let image = ctx.canvas.image;
     let width = ctx.canvas.width;
     let height = ctx.canvas.height;
 
@@ -145,6 +169,7 @@ export class ImageOp extends ToolOp {
 
     let tw = Math.min(x + tilesize, width) - x;
     let th = Math.min(y + tilesize, height) - y;
+    console.log(tw, th);
 
     if (tw === 0.0 || th === 0.0) {
       return;
@@ -159,6 +184,18 @@ export class ImageOp extends ToolOp {
   }
 
   undo(ctx) {
+    let canvas = ctx.canvas;
+
+    for (let tile of this.undoTiles.values()) {
+      let {x, y, w, h, data} = tile;
+
+      canvas.swapImageBlock(data);
+    }
+
+    window.redraw_all();
+/*
+    return;
+
     let {canvas, g} = this._getCanvas(ctx);
     let image = ctx.canvas.image;
 
@@ -175,8 +212,10 @@ export class ImageOp extends ToolOp {
       tile.data = old;
     }
 
-    ctx.canvas.image.data.set(g.getImageData(0, 0, image.width, image.height).data);
-    window.redraw_all([0, 0], [image.width, image.height]);
+    if (ctx.canvas.image) {
+      //ctx.canvas.image.data.set(g.getImageData(0, 0, image.width, image.height).data);
+      //window.redraw_all([0, 0], [image.width, image.height]);
+    }*/
   }
 
   redo(ctx) {

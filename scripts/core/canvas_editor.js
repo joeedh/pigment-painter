@@ -262,7 +262,7 @@ export class CanvasEditor extends simple.Editor {
     this.addEventListener("pointerdown", (e) => this.on_mousedown(e));
     this.addEventListener("pointermove", (e) => this.on_mousemove(e));
     this.addEventListener("pointerup", (e) => this.on_mouseup(e));
-    this.addEventListener("pointercancel", (e) => this.on_mouseup(e));
+    //this.addEventListener("pointercancel", (e) => this.on_mouseup(e));
 
     this.addEventListener("blur", () => {
       this.mdown = false;
@@ -382,6 +382,7 @@ export class CanvasEditor extends simple.Editor {
     tab.row().prop("canvas.activeBrush");
     tab.useIcons(false);
 
+    makeBrushProp(tab, "soft");
     makeBrushProp(tab, "spacing");
     makeBrushProp(tab, "scatter");
     makeBrushProp(tab, "smear");

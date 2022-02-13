@@ -10,6 +10,16 @@ export class GPULayer {
     this.name = attrname;
     this.key = key;
   }
+
+  copy() {
+    let l = new GPULayer();
+
+    l.elemsize = this.elemsize;
+    l.name = this.name;
+    l.key = this.key;
+
+    return l;
+  }
 }
 
 export class GPUMesh {
@@ -19,6 +29,53 @@ export class GPUMesh {
     this.gl = gl;
     this.primtype = primtype;
     this.totprim = totprim;
+  }
+
+  copy() {
+    let ret = new GPUMesh(this.gl, this.primtype, this.totprim);
+
+    for (let layer of this.layers) {
+      let layer2 = layer.copy();
+      ret.layers.push(layer2);
+
+      let buf1 = this.vbo.get(this.gl, layer.key);
+      let buf2 = ret.vbo.get(this.gl, layer.key);
+
+      buf1.copyTo(buf2, true, this.gl);
+    }
+
+    return ret;
+  }
+
+  swapAttributes(key1, key2) {
+    let layer1, layer2;
+
+    for (let layer of this.layers) {
+      if (layer.key === key1 || layer.key === key2) {
+        if (!layer1) {
+          layer1 = layer;
+        } else {
+          layer2 = layer;
+        }
+      }
+    }
+
+    if (!layer1) {
+      throw new Error("unknown key " + key1);
+    }
+    if (!layer2) {
+      throw new Error("unknown key " + key2);
+    }
+
+    let buf1 = this.vbo.remove(layer1.key);
+    let buf2 = this.vbo.remove(layer2.key);
+
+    let tmp = layer1.key;
+    layer1.key = layer2.key;
+    layer2.key = tmp;
+
+    this.vbo.add(this.gl, layer1.key, buf1);
+    this.vbo.add(this.gl, layer2.key, buf2);
   }
 
   addLayer(elemSize, attrname, data) {
@@ -39,10 +96,6 @@ export class GPUMesh {
   draw(gl, uniforms, defines, program) {
     program.bind(gl, uniforms, defines);
 
-    for (let i = 0; i < 5; i++) {
-      gl.disableVertexAttribArray(i);
-    }
-
     this.layers.sort((a, b) => (a.key > b.key)*2.0 - 1.0);
 
     //console.log("start");
@@ -52,8 +105,9 @@ export class GPUMesh {
       let loc = program.attrloc(layer.key);
 
       //console.log("loc", layer.key, loc, buf);
-
-      buf.bind(gl, loc);
+      if (loc !== undefined) {
+        buf.bind(gl, loc);
+      }
     }
 
     let totprim = this.totprim;
@@ -68,6 +122,15 @@ export class GPUMesh {
 
     //console.log("totprim", totprim);
     gl.drawArrays(this.primtype, 0, totprim);
+
+    for (let layer of this.layers) {
+      let buf = this.vbo.get(gl, layer.key);
+      let loc = program.attrloc(layer.key);
+
+      if (loc !== undefined) {
+        buf.unbind(gl, loc);
+      }
+    }
   }
 
   destroy() {

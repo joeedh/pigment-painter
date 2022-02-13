@@ -58,7 +58,8 @@ export function getSearchOffs(n, falloffKey, falloffCB) {
 
 export class DotSample {
   constructor(x, y, dx, dy, t, pressure, radius,
-              spacing, strength, angle_degrees, squish) {
+              spacing, strength, angle_degrees, squish,
+              soft) {
     this.x = x;
     this.y = y;
     this.dx = dx;
@@ -68,8 +69,9 @@ export class DotSample {
     this.radius = radius;
     this.spacing = spacing;
     this.strength = strength;
-    this.angle = angle_degrees / 180.0 * Math.PI;
+    this.angle = angle_degrees/180.0*Math.PI;
     this.squish = squish;
+    this.soft = soft;
   }
 
   copyTo(b) {
@@ -84,6 +86,7 @@ export class DotSample {
     b.strength = this.strength;
     b.angle = this.angle;
     b.squish = this.squish;
+    b.soft = this.soft;
   }
 
   copy() {
@@ -106,6 +109,7 @@ DotSample {
   strength    : float;
   angle       : float;
   squish      : float;
+  soft        : float;
 }
 `;
 nstructjs.register(DotSample);
@@ -236,7 +240,24 @@ export class Canvas {
       row.set(new Uint8Array(buf1, ((y + i)*width + x)*4, w*4));
     }
 
-    return image;
+    return {
+      image,
+      memSize: image.data.length,
+      x, y, w, h
+    };
+  }
+
+  swapImageBlock(block) {
+    let buf1 = this.image.data;
+    let buf2 = block.image.data;
+
+    let {x, y, w, h} = block;
+
+    for (let i = 0; i < h; i++) {
+      let row1 = new Uint8Array(buf2, i*w*4, w*4);
+      let row2 = new Uint8Array(buf1, ((y + i)*width + x)*4, w*4);
+      row2.set(row1);
+    }
   }
 
   getBrush(slot = this.activeBrush) {

@@ -60,6 +60,9 @@ export class AppState extends simple.AppState {
   constructor() {
     super(Context);
 
+    this.toolstack.enforceMemLimit = true;
+    //this.toolstack.memLimit = 8*1024*1024;
+
     this.rectCacheRing = new util.cachering(() => {
       return [new Vector2(), new Vector2()];
     }, 2048);

@@ -1,5 +1,6 @@
 import {ShaderProgram} from './webgl.js';
 
+/* blit: uses vUv for texture lookup */
 export let BlitShader = {
   vertex    : `#version 300 es
 precision highp float;
@@ -63,6 +64,173 @@ void main() {
   attributes: ["co", "uv"]
 }
 
+/* blit2: uses vCo for texture lookup */
+export let BlitShader2 = {
+  vertex    : `#version 300 es
+precision highp float;
+
+uniform vec2 size;
+uniform float aspect;
+uniform sampler2D rgba;
+
+in vec2 co;
+in vec2 uv;
+
+out vec2 vUv;
+out vec2 vCo;
+
+void main() {
+  gl_Position = vec4(co*2.0 - 1.0, 0.0, 1.0);
+  
+  vUv = uv;
+  vCo = co;
+}
+`,
+  fragment  : `#version 300 es
+precision highp float;
+
+uniform vec2 size;
+uniform float aspect;
+uniform sampler2D rgba;
+
+in vec2 vCo;
+in vec2 vUv;
+
+out vec4 fragColor;
+
+float seed = 0.0;
+
+float hash2(vec2 p, float seed2) {
+  seed2 += seed;
+  p += seed2;
+
+  float f = fract(p.x*12323.32432 + seed2) + fract(p.y*12335.23423);
+  f = f + 0.1*f*fract(p.x*p.y*21320.23432 + seed2);
+  
+  return fract(f + seed2) - 0.5;
+}
+
+float hash(vec2 p, float seed2)
+{
+  p *= 1231200.0;
+  seed2 += seed;
+  seed2 *= 2320034.0;
+  
+  p += seed2;
+  
+  vec3 p3  = fract(vec3(p.xyx) * .1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract(seed2 + (p3.x + p3.y) * p3.z) - 0.5;
+}
+
+float gamma(float c) {
+  if (c < 0.0031308) {
+    return (c < 0.0) ? 0.0 : c*12.92;
+  } else {
+    return 1.055*pow(c, 1.0/2.4) - 0.055;
+  }
+}
+
+float ungamma(float c) {
+  if (c < 0.04045) {
+    return (c < 0.0) ? 0.0 : c*(1.0/12.92);
+  } else {
+    return pow((c + 0.055)/1.055, 2.4);
+  }
+}
+
+void main() {
+  vec4 c = texture(rgba, vCo);
+  
+  //c = vec4(hash(vUv, 0.1), hash2(vCo, 0.2), hash(vCo, 0.3), 1.0);
+  
+  //c[0] = gamma(c[0]);
+  //c[1] = gamma(c[1]);
+  //c[2] = gamma(c[2]);
+  
+  fragColor = c;
+}
+`,
+  uniforms  : {},
+  attributes: ["co", "uv"]
+}
+
+
+/* blit2: uses vCo for texture lookup */
+export let UndoBlitShader = {
+  vertex    : `#version 300 es
+precision highp float;
+
+uniform vec2 size;
+uniform float aspect;
+uniform sampler2D rgba;
+
+in vec2 co;
+in vec2 uv;
+
+out vec2 vUv;
+out vec2 vCo;
+
+void main() {
+  gl_Position = vec4(co*2.0 - 1.0, 0.0, 1.0);
+  
+  vUv = uv;
+  vCo = co;
+}
+`,
+  fragment  : `#version 300 es
+precision highp float;
+
+uniform vec2 size;
+uniform float aspect;
+uniform sampler2D rgba;
+
+in vec2 vCo;
+in vec2 vUv;
+
+out vec4 fragColor;
+
+uniform float seed;
+uniform float id;
+
+float hash2(vec2 p, float seed2) {
+  seed2 += seed;
+  p += seed2;
+
+  float f = fract(p.x*12323.32432 + seed2) + fract(p.y*12335.23423);
+  f = f + 0.1*f*fract(p.x*p.y*21320.23432 + seed2);
+  
+  return fract(f + seed2) - 0.5;
+}
+
+float hash(vec2 p, float seed2)
+{
+  p *= 1231200.0;
+  seed2 += seed;
+  seed2 *= 2320034.0;
+  
+  p += seed2;
+  
+  vec3 p3  = fract(vec3(p.xyx) * .1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract(seed2 + (p3.x + p3.y) * p3.z) - 0.5;
+}
+
+void main() {
+  vec4 c = texture(rgba, vUv);
+
+#if 0
+  c = vec4(hash(vUv, 0.1), hash2(vCo, 0.2), hash(vCo, 0.3), 1.0);
+  vec4 cid = vec4(fract(id*3.234), fract(id*5.234), fract(id*9.12312), 1.0);
+  c = mix(c, cid, 0.9);
+#endif
+
+  fragColor = c;
+}
+`,
+  uniforms  : {},
+  attributes: ["co", "uv"]
+}
 
 export let PaintShader = {
   vertex    : `#version 300 es
@@ -81,6 +249,7 @@ in float radius;
 in vec4 smear;
 in float squish;
 in float angle;
+in float soft;
 
 out vec4 vSmear;
 out vec2 vUv;
@@ -90,6 +259,7 @@ out vec2 vDv;
 out float vRadius;
 out float vAngle;
 out float vSquish;
+out float vSoft;
 
 vec2 rot2d(vec2 p, float th) {
   float costh = cos(th);
@@ -116,6 +286,7 @@ void main() {
   vDv = normalize(dv) * invSize;
   vRadius = radius;
   vSmear = smear;
+  vSoft = soft + 0.001;
 }
 `,
   fragment  : `#version 300 es
@@ -145,6 +316,7 @@ in float vRadius;
 in vec4 vSmear;
 in float vAngle;
 in float vSquish;
+in float vSoft;
 
 out vec4 fragColor;
 
@@ -318,7 +490,8 @@ void main() {
     return;
   }
   
-  w = w < 0.25 ? w*4.0 : 1.0;
+  w = w < vSoft ? w/vSoft : 1.0;
+  w *= w*w*w;
   
   float fac = vStrength*w;
 
@@ -344,13 +517,15 @@ void main() {
 }
 `,
   uniforms  : {},
-  attributes: ["co", "uv", "strength", "dv", "radius", "smear", "squish", "angle"]
+  attributes: ["co", "uv", "strength", "dv", "radius", "smear", "squish", "angle", "soft"]
 }
 
 
 export const ShaderDef = {
   BlitShader,
   PaintShader,
+  BlitShader2,
+  UndoBlitShader
 };
 
 export const Shaders = {};
