@@ -18,6 +18,9 @@ export const FBOSlots = {
 
 export class WebGLPaint extends Canvas {
   constructor(dimen = 900) {
+    dimen *= UIBase.getDPI();
+    dimen = ~~dimen;
+    
     super(dimen);
 
     this.image = undefined;
