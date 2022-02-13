@@ -1341,7 +1341,7 @@ export class Texture {
     //ifmt = gl.RGBA;
 
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
-    gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, false);
+    gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.NONE);
     //gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
 
     this.texParameteri(gl, target, gl.TEXTURE_MAG_FILTER, filter);

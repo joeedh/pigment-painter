@@ -86,7 +86,6 @@ export class WebGLPaint extends Canvas {
       dimen = 256;
     }
 
-    console.log("%cUploading LUT to gl. . .", "color:green");
     this.updateUnifiedLut(this.unifiedLut, dimen);
   }
 
@@ -350,6 +349,8 @@ export class WebGLPaint extends Canvas {
   }
 
   updateUnifiedLut(image, dimen) {
+    console.log("%cUploading LUT to gl. . .", "color:green");
+
     let gl = this.gl;
 
     if (this.lutTex) {

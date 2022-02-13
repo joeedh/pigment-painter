@@ -193,7 +193,7 @@ vec4 colorToPigment(vec3 rgb) {
 
 vec3 pigmentToColor(vec4 pigment) {
   //about 1/255
-  float d = 0.01;
+  float d = 0.002;
   
   pigment.r += hash(vCo, 0.2342)*d;
   pigment.g += hash(vCo, 0.7342)*d;
@@ -257,9 +257,9 @@ vec4 pigmentMix(vec4 a, vec4 b, float fac) {
   r.rgb += err;
   
 #if 1
-  r.r += hash(vCo, 0.2342)*0.004;
-  r.g += hash(vCo, 0.7342)*0.004;
-  r.b += hash(vCo, 1.5342)*0.004; //about 1/255
+  r.r += hash(vCo, 0.2342)*0.002;
+  r.g += hash(vCo, 0.7342)*0.002;
+  r.b += hash(vCo, 1.5342)*0.002; //about 1/255
 #endif
 
   r.rgb = clamp(r.rgb, 0.0, 1.0);

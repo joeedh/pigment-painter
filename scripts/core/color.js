@@ -1,7 +1,8 @@
 import {
-  util, Vector2, Vector3, Vector4,
-  Matrix4, Quat, math, nstructjs
-} from '../path.ux/pathux.js';
+  Vector2, Vector3, Vector4,
+  Matrix4
+} from '../path.ux/scripts/util/vectormath.js';
+import * as util from '../path.ux/scripts/util/util.js';
 
 export const ColorSpaces = {
   XYZ: 0,
@@ -120,6 +121,8 @@ let rgb_to_cmyk_rets = util.cachering.fromConstructor(Vector4, 512);
 let cmyk_to_rgb_rets = util.cachering.fromConstructor(Vector3, 512);
 let rgb_to_linear_rets = util.cachering.fromConstructor(Vector3, 512);
 let linear_to_rgb_rets = util.cachering.fromConstructor(Vector3, 512);
+let p65rgb_to_xyz_rets = util.cachering.fromConstructor(Vector3, 512);
+let xyz_to_p65rgb_rets = util.cachering.fromConstructor(Vector3, 512);
 
 export function srgb_gamma_to_linear(c) {
   if (c < 0.04045) {
@@ -286,6 +289,41 @@ m.m23 = -0.2040;
 m.m33 = 1.0570;
 
 m.m44 = 0.0;
+
+/*uses srgb gamma function*/
+export function p65rgb_to_xyz(r, g, b) {
+  r = srgb_gamma_to_linear(r);
+  g = srgb_gamma_to_linear(g);
+  b = srgb_gamma_to_linear(b);
+
+  let x = r*0.4866 + g*0.2657 + b*0.1982;
+  let y = r*0.2290 + g*0.6917 + b*0.0793;
+  let z = r*-0.0000 + g*0.0451 + b*1.0439;
+
+  let ret = p65rgb_to_xyz_rets.next();
+  ret[0] = x;
+  ret[1] = y;
+  ret[2] = z;
+
+  return ret;
+}
+
+export function xyz_to_p65rgb(x, y, z) {
+  let r = x*2.4935 + y*-0.9314 + z*-0.4027;
+  let g = x*-0.8295 + y*1.7627 + z*0.0236;
+  let b = x*0.0358 + y*-0.0762 + z*0.9569;
+
+  r = srgb_linear_to_gamma(r);
+  g = srgb_linear_to_gamma(g);
+  b = srgb_linear_to_gamma(b);
+
+  let ret = xyz_to_p65rgb_rets.next();
+  ret[0] = r;
+  ret[1] = g;
+  ret[2] = b;
+
+  return ret;
+}
 
 export function xyz_to_rgb(X, Y, Z, noGamma=false) {
 

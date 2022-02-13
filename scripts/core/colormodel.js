@@ -2,7 +2,8 @@
 * that doesn't just fit inside the rgb cube,
 * but is also optimized to stretch to fill
 * it*/
-export const WIDE_GAMUT = true;
+export const WIDE_GAMUT = false;
+
 export const USE_LUT_IMAGE = true;
 export const LINEAR_LUT = false;
 export const WEBGL_PAINTER = true;
@@ -24,7 +25,7 @@ export const lightFreqRange = [waveLengthToFreq(lightWaveLengths[0]), waveLength
 let lutImages = {};
 
 export function getLUTImage() {
-  let url = WIDE_GAMUT ? "lut_wide_256.png" : "lut_physical_258.png";
+  let url = WIDE_GAMUT ? "lut_wide_256.png" : "lut_physical_2_258.png";
   url = "/assets/" + url;
 
   let img;
@@ -108,6 +109,11 @@ function zhat(wlen) {
   return 1.217*g(wlen, 437.0, 11.8, 36.0) + 0.681*g(wlen, 459.0, 26.0, 13.0);
 
 }
+
+window.xhat = xhat;
+window.yhat = yhat;
+window.zhat = zhat;
+
 //*/
 
 let wdigest = new util.HashDigest();
@@ -611,7 +617,7 @@ export class Pigment {
   }
 
   static toRGB(pigments, ws) {
-    let steps = 10;
+    let steps = 32;
     let w1 = lightWaveLengths[0];
     let w2 = lightWaveLengths[1];
 
@@ -1815,12 +1821,12 @@ export class PigmentSet extends Array {
     }
 
     for (let i = 0; i < lut.length; i += 4) {
-      if (!used[i>>2]) {
+      if (!used[i/4]) {
         continue;
       }
 
       let w = lut[i] + lut[i + 1] + lut[i + 2] + lut[i + 3];
-      used[i>>2] = 1.0;
+      used[i/4] = 1;
 
       if (w) {
         w = 1.0/w;
@@ -1869,11 +1875,16 @@ export class PigmentSet extends Array {
     for (let x = -1; x <= 1; x++) {
       for (let y = -1; y <= 1; y++) {
         for (let z = -1; z <= 1; z++) {
-          offs.push([x, y, z]);
+          let dis = Math.sqrt(x*x + y*y + z*z);
+
+          offs.push([x, y, z, dis]);
         }
       }
     }
 
+    let DX = 0, DY = 1, DZ = 2, DDIS = 3, DTOT = 4;
+    let dis2 = new Float32Array(used.length*DTOT);
+    dis2.fill(0.0);
 
     for (let x = 0; x < dimen; x++) {
       for (let y = 0; y < dimen; y++) {
@@ -1883,6 +1894,11 @@ export class PigmentSet extends Array {
           if (!used[idx]) {
             continue;
           }
+
+          dis2[idx*DTOT] = x;
+          dis2[idx*DTOT + 1] = y;
+          dis2[idx*DTOT + 2] = z;
+          dis2[idx*DTOT + 3] = 0.0;
 
           queue.push(x);
           queue.push(y);
@@ -1899,7 +1915,7 @@ export class PigmentSet extends Array {
     let queue2 = [];
 
     for (let i = 0; i < used.length; i++) {
-      used[i] = used2[i];
+      used2[i] = used[i];
       mask[i] = !used[i];
     }
 
@@ -1932,14 +1948,29 @@ export class PigmentSet extends Array {
 
           let idx2 = dimen*dimen*z2 + dimen*y2 + x2;
 
+          let srcx = dis2[idx*DTOT];
+          let srcy = dis2[idx*DTOT + 1];
+          let srcz = dis2[idx*DTOT + 2];
+
+          let dist2 = Math.sqrt((srcx - x2)**2 + (srcy - y2)**2 + (srcz - z2)**2);
+
           if (!used[idx2]) {
             if (!used2[idx2]) {
               queue2.push(x2);
               queue2.push(y2);
               queue2.push(z2);
+            } else if (dist2 > dis2[idx2*DTOT + DDIS]) {
+              continue;
             }
 
-            used2[idx2] += 1;
+            /* transfer source coordinates */
+            dis2[idx2*DTOT] = srcx;
+            dis2[idx2*DTOT + 1] = srcy;
+            dis2[idx2*DTOT + 2] = srcz;
+
+            dis2[idx2*DTOT + DDIS] = dist2;
+
+            used2[idx2] = 1;
 
             if (isNaN(lut[idx*4])) {
               console.log(lut[idx*4], lut[idx*4 + 1], lut[idx*4 + 2], lut[idx*4 + 3]);
@@ -1947,12 +1978,19 @@ export class PigmentSet extends Array {
               throw new Error("NaN!");
             }
 
-            let f = 0.001;
+            let ff = dist2*0.00675;
 
-            lut[idx2*4] += lut[idx*4]*f;
-            lut[idx2*4 + 1] += lut[idx*4 + 1]*f;
-            lut[idx2*4 + 2] += lut[idx*4 + 2]*f;
-            lut[idx2*4 + 3] += lut[idx*4 + 3]*f;
+            if (1) {
+              lut[idx2*4] = lut[idx*4];
+              lut[idx2*4 + 1] = lut[idx*4 + 1];
+              lut[idx2*4 + 2] = lut[idx*4 + 2];
+              lut[idx2*4 + 3] = lut[idx*4 + 3];
+            } else {
+              lut[idx2*4] = ff;
+              lut[idx2*4+1] = ff;
+              lut[idx2*4+2] = ff;
+              lut[idx2*4+3] = ff;
+            }
           }
         }
       }
@@ -1965,20 +2003,25 @@ export class PigmentSet extends Array {
           continue;
         }
 
-        let mul = lut[idx*4] + lut[idx*4 + 1] + lut[idx*4 + 2] + lut[idx*4 + 3];
+        used[idx] = 1;
 
-        if (mul > 0.0) {
-          mul = 1.0/mul;
-        } else {
-          continue;
+        if (0) {
+          let mul = lut[idx*4] + lut[idx*4 + 1] + lut[idx*4 + 2] + lut[idx*4 + 3];
+
+          if (mul > 0.0) {
+            mul = 1.0/mul;
+          } else {
+            continue;
+          }
+
+          lut[idx*4] *= mul;
+          lut[idx*4 + 1] *= mul;
+          lut[idx*4 + 2] *= mul;
+          lut[idx*4 + 3] *= mul;
+
+          used[idx] = 1;
+          used2[idx] = 1;
         }
-
-        lut[idx*4] *= mul;
-        lut[idx*4 + 1] *= mul;
-        lut[idx*4 + 2] *= mul;
-        lut[idx*4 + 3] *= mul;
-
-        used2[idx] = 1;
       }
 
       let tmp = used;
