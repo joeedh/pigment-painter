@@ -54,6 +54,21 @@ export class Context {
   }
 }
 
+function makeMenuBar(ctx, container, editor) {
+  container.menu("File", [
+    "app.new()",
+    "app.open()",
+    simple.Menu.SEP,
+    "app.save()",
+    "app.save(forceDialog=true)|Save As",
+  ]);
+
+  container.menu("Edit", []);
+  container.menu("Session", []);
+}
+
+simple.Editor.registerAppMenu(makeMenuBar);
+
 const LOCAL_STORAGE_KEY = "_pigment_paint";
 
 export class AppState extends simple.AppState {
@@ -87,7 +102,17 @@ export class AppState extends simple.AppState {
     if (WEBGL_PAINTER) {
       this.canvas.init(this.gl);
     }
+
+    this.fileExt = "png";
     //this.canvas = new Canvas();
+  }
+
+  createNewFile() {
+    this.toolstack.reset();
+    this.currentFileRef = undefined;
+
+    this.canvas.reset();
+    window.redraw_all();
   }
 
   updateSize() {
@@ -136,31 +161,84 @@ export class AppState extends simple.AppState {
   }
 
   save() {
-    let data = JSON.stringify(this.saveFile({useJSON: true}));
-    localStorage[LOCAL_STORAGE_KEY] = data;
+    this.saveFile({useJSON: true}).then(data => {
+      data = JSON.stringify(data);
+      localStorage[LOCAL_STORAGE_KEY] = data;
 
-    console.log("saved localstorage data:", (data.length/1024.0).toFixed(2) + "kb");
+      console.log("saved localstorage data:", (data.length/1024.0).toFixed(2) + "kb");
+    });
   }
 
   saveFile(args = {}) {
-    return super.saveFile([this.canvas], args);
+    return new Promise((accept, reject) => {
+      super.saveFile([this.canvas], args).then(buffer => {
+        if (args.fromFileOp) {
+          let canvas;
+
+          canvas = document.createElement("canvas");
+          canvas.width = this.canvas.width;
+          canvas.height = this.canvas.height;
+          let g = canvas.getContext("2d");
+
+          let image = WEBGL_PAINTER ? this.canvas.getImageData() : this.canvas.image;
+          g.putImageData(image, 0, 0);
+
+          canvas.toBlob(blob => {
+            blob.arrayBuffer().then(buffer2 => {
+              accept(buffer2);
+            });
+          });
+        } else {
+          accept(buffer);
+        }
+      });
+    });
   }
 
   loadFile(data, args = {}) {
-    let file = super.loadFile(data, args);
+    return new Promise((accept, reject) => {
+      if (args.fromFileOp) {
+        let s = '';
+        let buf = new Uint8Array(data);
 
-    this.canvas = file.objects[0];
+        for (let i=0; i<buf.length; i++) {
+          s += String.fromCharCode(buf[i]);
+        }
 
-    if (!!WEBGL_PAINTER !== !!(this.canvas instanceof WebGLPaint)) {
-      let brushes = this.canvas.brushes;
+        s = "data:image/png;base64," + btoa(s);
+        let img = document.createElement("img");
+        img.src = s;
+        img.onload = () => {
+          let canvas = document.createElement("canvas");
+          let g = canvas.getContext("2d");
 
-      this.canvas = WEBGL_PAINTER ? new WebGLPaint() : new Canvas();
-      this.canvas.brushes = brushes;
+          canvas.width = img.width;
+          canvas.height = img.height;
 
-      if (WEBGL_PAINTER) {
-        this.canvas.init(this.gl);
+          g.drawImage(img, 0, 0);
+          let image = g.getImageData(0, 0, canvas.width, canvas.height);
+
+          this.canvas.putImageData(image);
+        }
+      } else {
+        super.loadFile(data, args).then(file => {
+          this.canvas = file.objects[0];
+
+          if (!!WEBGL_PAINTER !== !!(this.canvas instanceof WebGLPaint)) {
+            let brushes = this.canvas.brushes;
+
+            this.canvas = WEBGL_PAINTER ? new WebGLPaint() : new Canvas();
+            this.canvas.brushes = brushes;
+
+            if (WEBGL_PAINTER) {
+              this.canvas.init(this.gl);
+            }
+          }
+
+          accept();
+        });
       }
-    }
+    });
     //console.log("re-executing canvas strokes. . .");
     //this.canvas.reexec();
   }
@@ -179,7 +257,10 @@ export class AppState extends simple.AppState {
       let data = localStorage[LOCAL_STORAGE_KEY];
 
       try {
-        this.loadFile(data, {useJSON: true})
+        this.loadFile(data, {useJSON: true}).catch(error => {
+          console.error(error.stack);
+          console.error("Failed to load startup file", error.message);
+        });
       } catch (error) {
         console.error(error.stack);
         console.error("Failed to load startup file", error.message);

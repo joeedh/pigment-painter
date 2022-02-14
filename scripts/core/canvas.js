@@ -195,6 +195,14 @@ export class Canvas {
     this.tempCanvas = undefined;
   }
 
+  putImageData(image) {
+    this.width = image.width;
+    this.height = image.height;
+
+    this.image = image;
+    window.redraw_all();
+  }
+
   get brush() {
     return this.getBrush(this.activeBrush);
   }

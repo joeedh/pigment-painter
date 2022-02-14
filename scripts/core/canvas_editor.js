@@ -481,7 +481,7 @@ export class CanvasEditor extends simple.Editor {
       initial : true,
       x       : e.x,
       y       : e.y,
-      pressure: getPressure(e)
+      pressure: e.pressure
     });
   }
 

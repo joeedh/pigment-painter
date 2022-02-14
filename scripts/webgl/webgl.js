@@ -1170,6 +1170,10 @@ export class Texture {
     let use_byte_width = data instanceof Uint8Array || data instanceof Uint8ClampedArray || data instanceof ArrayBuffer;
     use_byte_width = use_byte_width || gl.haveWebGL2;
 
+    if (data instanceof ImageData) {
+      data = data.data;
+    }
+
     if (data instanceof Float32Array) {
       gl.texImage2D(target, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.FLOAT, data);
     } else if (use_byte_width) {
@@ -1398,6 +1402,10 @@ export class Texture {
 
     this.texParameteri(gl, target, gl.TEXTURE_MAG_FILTER, filter);
     this.texParameteri(gl, target, gl.TEXTURE_MIN_FILTER, filter);
+
+    if (data instanceof ImageData) {
+      data = data.data;
+    }
 
     if (data instanceof Float32Array) {
       gl.texImage2D(target, 0, ifmt, width, height, 0, gl.RGBA, gl.FLOAT, data);

@@ -44,6 +44,10 @@ export class BrushStrokeOp extends ImageOp {
   constructor() {
     super();
 
+    this.lastTime = util.time_ms();
+
+    this.wasFirst = false;
+
     this.T = 0.0;
     this.rect = [new Vector2(), new Vector2()];
     this.last_mpos = new Vector2();
@@ -100,13 +104,14 @@ export class BrushStrokeOp extends ImageOp {
     if (this.inputs.initial.getValue()) {
       let x = this.inputs.x.getValue();
       let y = this.inputs.y.getValue();
+      let pressure = this.inputs.pressure.getValue();
 
-      console.log("XY", x, y);
+      console.log("XY", x, y, pressure);
 
       this.on_pointermove(new PointerEvent("pointermove", {
-        x, y, pageX: x, pageY: y, clientX: x, clientY: y, tiltX: 0, tiltY: 0,
-        pressure   : this.inputs.pressure.getValue()
-      }), this.inputs.pressure.getValue());
+        x, y, pageX: x, pageY: y, clientX: x, clientY: y,
+        tiltX      : 0, tiltY: 0, pressure
+      }), pressure);
     }
 
     return super.modalStart(ctx);
@@ -152,10 +157,15 @@ export class BrushStrokeOp extends ImageOp {
       this.last_stroke_mpos2.load(mpos);
       this.last_stroke_mpos3.load(mpos);
 
+      this.t = 0;
+      this.last_t = 0;
+      this.last_stroke_t = 0;
+
       this.first = false;
       was_first = true;
 
       ctx.canvas.beginStroke();
+      this.wasFirst = true;
     }
 
     let dx = mpos[0] - this.last_stroke_mpos[0];
@@ -186,7 +196,7 @@ export class BrushStrokeOp extends ImageOp {
     let dis = Math.sqrt(dx*dx + dy*dy);
     let dt = dis/(2.0*radius);
 
-    this.t = this.last_t + dt;
+    this.t += dt;
 
     if (was_first) {
       console.log("FIRST", mpos[0], mpos[1]);
@@ -236,10 +246,19 @@ export class BrushStrokeOp extends ImageOp {
       dv1.interp(dv2, 0.5).normalize().mulScalar(l1 + l2).mulScalar(0.5);
       dv2.interp(dv3, 0.5).normalize().mulScalar(l2 + l3).mulScalar(0.5);
 
-      a.load(this.last_stroke_mpos2);
-      d.load(this.last_stroke_mpos);
-      b.load(a).addFac(dv2, 1.0/3.0);
-      c.load(d).addFac(dv1, -1.0/3.0);
+      let useLagged = !this.wasFirst && (util.time_ms() - this.lastTime < 250);
+
+      if (useLagged) {
+        a.load(this.last_stroke_mpos2);
+        d.load(this.last_stroke_mpos);
+        b.load(a).addFac(dv2, 1.0/3.0);
+        c.load(d).addFac(dv1, -1.0/3.0);
+      } else {
+        a.load(this.last_stroke_mpos);
+        d.load(this.mpos);
+        b.load(a).interp(d, 1.0/3.0);
+        c.load(a).interp(d, 2.0/3.0);
+      }
 
       let blen = cubic2len(a, b, c, d);
 
@@ -287,7 +306,16 @@ export class BrushStrokeOp extends ImageOp {
 
       //console.log(circ[0], circ[1], th1, th2, blen, steps, t, dt);
 
-      for (let i = 0; i < steps + 1; i++, t += dt, s += ds) {
+      let i = 0;
+      if (this.wasFirst) {
+        this.wasFirst = false;
+
+        i++;
+        t += dt;
+        s += ds;
+      }
+
+      for (; i < steps + 1; i++, t += dt, s += ds) {
         if (t >= this.t) {
           break;
         }
@@ -363,6 +391,7 @@ export class BrushStrokeOp extends ImageOp {
       this.last_stroke_mpos3.load(this.last_stroke_mpos2);
       this.last_stroke_mpos2.load(this.last_stroke_mpos);
       this.last_stroke_mpos.load(this.mpos);
+      this.lastTime = util.time_ms();
     }
 
     //console.log(this.inputs.stroke.getValue());
@@ -380,13 +409,12 @@ export class BrushStrokeOp extends ImageOp {
     min.addScalar(~~(-radius*1.25));
     max.addScalar(~~(radius*1.25));
 
-    window.redraw_all(min, max);
-
     this.undoCheck(ctx, ds.x, ds.y, 2*radius);
 
     for (let step of ctx.canvas.execDot(ds)) {
-
     }
+
+    window.redraw_all(min, max);
   }
 
   exec(ctx) {

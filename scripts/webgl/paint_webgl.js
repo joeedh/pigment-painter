@@ -172,6 +172,7 @@ export class WebGLPaint extends Canvas {
 
   drawIntern(queue) {
     this.animreq = undefined;
+    console.log("QUEUE", this.queue.length, this.queue);
 
     //ensure shader can compile for attrloc in gpumesh
     Shaders.PaintShader.defines.TOOL = 0;
@@ -453,6 +454,81 @@ export class WebGLPaint extends Canvas {
     window.redraw_all();
   }
 
+  putImageData(image) {
+    this.width = image.width;
+    this.height = image.height;
+
+    for (let fbo of this.fbos) {
+      fbo.update(this.gl, this.width, this.height);
+    }
+
+    let gl = this.gl;
+    let texture = new Texture(gl.createTexture(), gl);
+
+
+    texture.load(gl, image.width, image.height, image, gl.TEXTURE_2D, false, gl.LINEAR);
+
+    let uvs = [
+      0, 0, 0, 1, 1, 1,
+      0, 0, 1, 1, 1, 0
+    ];
+
+    let mesh = new GPUMesh(gl, gl.TRIANGLES, 2);
+
+    /*
+    x /= this.width - 1;
+    y /= this.height - 1;
+    w /= this.width - 1;
+    h /= this.height - 1;
+
+    mesh.addLayer(2, "co", [
+      x, y, x, y + h, x + w, y + h,
+      x, y, x + w, y + h, x + w, y
+    ]);*/
+
+    mesh.addLayer(2, "co", uvs);
+    mesh.addLayer(2, "uv", uvs);
+
+    for (let i = 0; i < 2; i++) {
+      this.fbos[i].bind(gl);
+
+      mesh.draw(gl, {
+        size  : [this.width, this.height],
+        aspect: this.width/this.height,
+        rgba  : texture
+      }, {}, Shaders.BlitShader);
+
+      this.fbos[i].unbind(gl);
+    }
+
+    texture.destroy(gl);
+
+    window.redraw_all();
+  }
+
+  getImageData(x = 0, y = 0, w = this.width, h = this.height) {
+    let gl = this.gl;
+    let fbo = this.fbos[0];
+
+    gl.finish();
+
+    fbo.bind(gl);
+
+    let data = new Float32Array(w*h*4);
+    gl.readPixels(x, y, w, h, gl.RGBA, gl.FLOAT, data);
+
+    let image = new ImageData(w, h);
+    let idata = image.data;
+
+    for (let i = 0; i < data.length; i++) {
+      idata[i] = data[i]*255.0;
+    }
+
+    fbo.unbind(gl);
+
+    return image;
+  }
+
   getImageBlock(x, y, w, h, fbo = undefined) {
     let memSize = w*h*4*4;
 
@@ -474,7 +550,7 @@ export class WebGLPaint extends Canvas {
       ret.fbo = fbo;
     }
 
-    ret.destroy = function() {
+    ret.destroy = function () {
       if (this.fbo) {
         fboUndoCache.free(this.fbo)
       }
@@ -531,6 +607,7 @@ export class WebGLPaint extends Canvas {
     }
 
     this.init(this.gl);
+    this.queue.length = 0;
   }
 
   * execDot(ds) {

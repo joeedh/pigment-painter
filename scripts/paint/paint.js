@@ -169,7 +169,7 @@ export class ImageOp extends ToolOp {
 
     let tw = Math.min(x + tilesize, width) - x;
     let th = Math.min(y + tilesize, height) - y;
-    console.log(tw, th);
+    //console.log(tw, th);
 
     if (tw === 0.0 || th === 0.0) {
       return;
