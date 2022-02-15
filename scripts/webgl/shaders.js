@@ -307,6 +307,7 @@ uniform float lutDimen;
 uniform float lutRowSize;
 uniform float lutTexelSize;
 uniform float seed;
+uniform vec4 smearPickup;
 
 in vec2 vCo;
 in vec2 vUv;
@@ -506,11 +507,18 @@ void main() {
   dv.x += hash(vCo, 0.23423)*vSmear[0]*2.0;
   dv.y += hash(vCo, 1.23432)*vSmear[0]*2.0;
   
-  dv *= vRadius;
+  dv *= vRadius; //*vSmear[2];
   
   vec4 a2 = texture(rgba, vCo - dv);
+
+#ifdef SMEAR_PICKUP
+  float w2 = vSmear[1];
   
+  a2 = pigmentMix(a2, smearPickup, w2);  
+#endif
+
   c = pigmentMix(a, a2, fac);
+  
 #endif
 
   fragColor = c;

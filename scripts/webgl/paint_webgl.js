@@ -70,6 +70,9 @@ export class WebGLPaint extends Canvas {
 
     super(dimen);
 
+    this.strokeFirst = false;
+    this.smearColor = new Vector4();
+
     this.image = undefined;
     this.animreq = undefined;
 
@@ -97,6 +100,8 @@ export class WebGLPaint extends Canvas {
     }
 
     this.fbos.length = 0;
+
+    gl.disable(gl.SCISSOR_TEST);
 
     for (let k in FBOSlots) {
       let fbo = new FBO(gl, this.width, this.height);
@@ -179,7 +184,7 @@ export class WebGLPaint extends Canvas {
 
     this.checkWasmImage();
 
-    if (!this.queue) {
+    if (this.queue.length === 0) {
       return;
     }
 
@@ -187,6 +192,34 @@ export class WebGLPaint extends Canvas {
     let brush = this.brush;
 
     let width = this.width, height = this.height;
+
+    if (brush.tool === BrushTools.SMEAR) {
+      this.fbos[0].bind(gl);
+
+      let x = this.queue[0].x;
+      let y = this.queue[0].y;
+
+      let data = new Float32Array(4*4);
+      gl.readPixels(x, y, 2, 2, gl.RGBA, gl.FLOAT, data);
+
+      this.fbos[0].unbind(gl);
+
+      let color = new Vector4();
+      for (let i = 0; i < data.length; i++) {
+        color[i%4] += data[i]
+      }
+      color.mulScalar(1.0/4.0);
+
+      if (this.strokeFirst) {
+        this.smearColor.load(color);
+      } else {
+        this.smearColor.interp(color, brush.smearRate*0.5);
+      }
+
+      //console.log("PIXELS", data);
+    }
+
+    this.strokeFirst = false;
 
     function rect(x, y, w, h, scale = true) {
       if (scale) {
@@ -308,6 +341,7 @@ export class WebGLPaint extends Canvas {
       lutRowSize,
       lutTexelSize: 1.0/this.lutWidth,
       seed        : Math.random(),
+      smearPickup : this.smearColor
     };
 
     for (let m of meshes) {
@@ -328,6 +362,9 @@ export class WebGLPaint extends Canvas {
     let defines = {};
 
     defines.TOOL = this.brush.tool;
+    if (brush.smear > 0.0) {
+      defines.SMEAR_PICKUP = null;
+    }
 
     i = 0;
     for (let m of meshes) {
@@ -608,6 +645,10 @@ export class WebGLPaint extends Canvas {
 
     this.init(this.gl);
     this.queue.length = 0;
+  }
+
+  beginStroke() {
+    this.strokeFirst = true;
   }
 
   * execDot(ds) {

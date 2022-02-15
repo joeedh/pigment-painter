@@ -101,6 +101,8 @@ export class BrushStrokeOp extends ImageOp {
     this.first = true;
     this.t = 0.0;
 
+    ctx.canvas.beginStroke();
+
     if (this.inputs.initial.getValue()) {
       let x = this.inputs.x.getValue();
       let y = this.inputs.y.getValue();
