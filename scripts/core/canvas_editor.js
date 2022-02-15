@@ -2,7 +2,7 @@ import {
   simple, UIBase, Vector4, Vector3,
   Vector2, Quat, Matrix4, util, nstructjs,
   KeyMap, HotKey, eventWasTouch, PackFlags,
-  Container, saveUIData, loadUIData
+  Container, saveUIData, loadUIData, pushModalLight, popModalLight, keymap
 } from '../path.ux/scripts/pathux.js';
 import {getSearchOffs, DotSample} from './canvas.js';
 
@@ -428,7 +428,127 @@ export class CanvasEditor extends simple.Editor {
 
       panel.closed = true;
     }
+
+    tab = sidebar.tab("LUT");
+
+    let lutimage = undefined;
+    let canvas = document.createElement("canvas");
+    let g = canvas.getContext("2d");
+
+    canvas.width = canvas.height = 256;
+
+    let render = () => {
+      lutimage = window.renderedLut;
+
+      g.clearRect(0, 0, canvas.width, canvas.height);
+      g.drawImage(lutimage, 0, 0, canvas.width, canvas.height);
+
+    }
+    tab.shadow.appendChild(canvas);
+    tab.update.after(() => {
+      if (window.renderedLut !== lutimage) {
+        render();
+      }
+    });
+
+    tab.button("Render", () => {
+      this.ctx.canvas.pigments.renderLUTCube();
+    });
+
+    let bindView = () => {
+      let getmouse = (e) => {
+        let r = canvas.getBoundingClientRect();
+
+        let w = canvas.width/UIBase.getDPI();
+
+        let x = (e.x - r.x)/w;
+        let y = (e.y - r.y)/w;
+
+        return new Vector2([x, y]);
+      }
+
+      let modalstate;
+
+      let endModal = () => {
+        if (modalstate) {
+          popModalLight(modalstate);
+          modalstate = undefined;
+          this.ctx.canvas.pigments._cameraDragging = false;
+          this.ctx.canvas.pigments.renderLUTCube();
+        }
+      }
+
+      let last_mpos = new Vector2();
+
+      canvas.addEventListener("pointerdown", (e) => {
+        console.log("Canvas mouse down!");
+
+        last_mpos = getmouse(e);
+
+        if (e.button === 0) {
+          e.preventDefault();
+        }
+
+        if (modalstate) {
+          return;
+        }
+
+        let workcanvas = this.ctx.canvas;
+        workcanvas.pigments._cameraDragging = true;
+
+        e.stopPropagation();
+
+        modalstate = pushModalLight({
+          on_pointerup(e) {
+            endModal();
+          },
+
+          on_pointercancel(e) {
+            endModal();
+          },
+
+          on_pointermove(e) {
+            let mpos = getmouse(e);
+            mpos.sub(last_mpos);
+
+            last_mpos.load(getmouse(e));
+
+            let cam = workcanvas.pigments.renderCamera;
+
+            let mat = new Matrix4();
+
+            let mat2 = new Matrix4(cam.cameramat);
+            mat2.makeRotationOnly();
+            let imat2 = new Matrix4(mat2);
+
+            imat2.invert();
+
+            //mpos.mulScalar(0.1);
+
+            mat.euler_rotate(mpos[1], -mpos[0], 0.0);
+            mat.preMultiply(imat2);
+            mat.multiply(mat2);
+
+            cam.pos.multVecMatrix(mat);
+            cam.target.multVecMatrix(mat);
+            cam.up.multVecMatrix(mat);
+            cam.regen_mats(1.0);
+
+            workcanvas.pigments.renderLUTCube();
+            render();
+          },
+          on_keydown(e) {
+            if (e.keyCode === keymap["Escape"]) {
+              endModal();
+            }
+          }
+        });
+      });
+    }
+
+    bindView();
   }
+
 
   defineKeyMap() {
     this.keymap = new KeyMap([

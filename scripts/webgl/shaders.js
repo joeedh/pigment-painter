@@ -419,7 +419,7 @@ vec4 pigmentMix(vec4 a, vec4 b, float fac) {
   //b.rgb = clamp2553(b.rgb);
 
 #if 0
-  float d = 0.01;
+  float d = 0.04;
   a.r += hash(vCo, 0.3342)*d;
   a.g += hash(vCo, 0.5342)*d;
   a.b += hash(vCo, 1.4342)*d;

@@ -2,7 +2,9 @@
 * that doesn't just fit inside the rgb cube,
 * but is also optimized to stretch to fill
 * it*/
-export const WIDE_GAMUT = false;
+import {Camera} from '../webgl/webgl.js';
+
+export const WIDE_GAMUT = true;
 
 export const USE_LUT_IMAGE = true;
 export const LINEAR_LUT = false;
@@ -83,6 +85,8 @@ Math.tent = f => 1.0 - Math.abs(Math.fract(f) - 0.5)*2.0;
 let mat_temps = util.cachering.fromConstructor(Matrix4, 32);
 
 window.COLOR_SCALE = WIDE_GAMUT ? 2.0 : (!LINEAR_LUT ? 1.2 : 1.0);
+window.REFL_K1 = 0.030;
+window.REFL_K2 = 0.650;
 
 function g(x, mu, o1, o2) {
   if (x < mu) {
@@ -621,7 +625,7 @@ export class Pigment {
     let w1 = lightWaveLengths[0];
     let w2 = lightWaveLengths[1];
 
-    let k1 = 0.030, k2 = 0.650;
+    let k1 = window.REFL_K1, k2 = window.REFL_K2;
 
     let f = w1, df = (w2 - w1)/steps;
 
@@ -1116,6 +1120,9 @@ export class PigmentSet extends Array {
   constructor() {
     super();
 
+    this.initRenderCamera();
+    this._cameraDragging = false;
+
     this.haveLoadedTable = false;
 
     this._last_hash = undefined;
@@ -1454,6 +1461,268 @@ export class PigmentSet extends Array {
     this.haveLoadedTable = true;
   }
 
+  initRenderCamera() {
+    let origin = new Vector3([2.5, 1.5, 2.0]);
+    let target = new Vector3([0.5, 0.5, 0.5]);
+    let ray = new Vector3(target).sub(origin).normalize();
+
+    origin.mulScalar(1.0);
+    origin.addFac(ray, 0.0);
+
+    let up = new Vector3([0, 0, 1]);
+    up.cross(ray).normalize();
+
+    let cam = new Camera();
+
+    cam.near = 0.0001;
+    cam.far = 10.0;
+    cam.fov = 45.0;
+    cam.pos.load(origin);
+    cam.up.load(up);
+    cam.target.load(target);
+    cam.aspect = 1.0;
+
+    this.renderCamera = cam;
+  }
+
+  renderLUTCube(useRlut, dist = 1.0, ortho = false, sensor = 1.0, startz = 0.05) {
+    let lut = useRlut ? this.rlut : this.lut;
+
+    let dimen = lut.dimen;
+    let dimen2 = dimen*2;
+
+    let image = new ImageData(dimen2, dimen2);
+    let idata = image.data;
+    let idimen2 = 1.0/dimen2;
+
+    let cam = this.renderCamera;
+    let origin = new Vector3(cam.pos);
+    let target = cam.target;
+    let p = new Vector3();
+
+    let ray = new Vector3(target).sub(origin).normalize();
+    let ray2 = new Vector3();
+
+    cam.regen_mats(1.0);
+
+    let mat = cam.rendermat
+    let imat = new Matrix4(mat);
+    imat.invert();
+
+    ray.normalize();
+
+    let start = new Vector3(origin);
+    let end = new Vector3();
+
+    //origin + ray*t = 1
+    //ray*t = 1-origin;
+    //t = 1-origin / ray
+
+    let axis;
+    if (Math.abs(ray[0]) <= Math.abs(ray[1]) && Math.abs(ray[0]) < Math.abs(ray[2])) {
+      axis = 0;
+    } else if (Math.abs(ray[2]) <= Math.abs(ray[1]) && Math.abs(ray[2]) < Math.abs(ray[1])) {
+      axis = 2;
+    } else {
+      axis = 1;
+    }
+
+    let t1 = (1.0 - origin[axis]) / ray[axis];
+    let t2 = -(origin[axis] + 1.0) / ray[axis];
+    let startt;
+
+    if (t1 > 0.0 && t2 > 0.0) {
+      startt = Math.min(t1, t2);
+      //startt = (t1+t2)*0.5;
+    } else if (t2 > 0.0) {
+      startt = t2;
+    } else {
+      startt = t1;
+    }
+
+    //startt *= 0.25;
+    startt = 1.0;
+    //startt = Math.abs(origin[axis] - 1.0);
+
+    let p2 = new Vector3();
+
+    //console.log("T", startt.toFixed(3), t1.toFixed(3), t2.toFixed(3));
+    //console.log("ORIGIN", cam.pos);
+
+    //startt = 0.0;
+
+    if (ortho) {
+      sensor *= 1.0 + dist;
+    }
+
+    let steps = this._cameraDragging ? 4 : 55;
+    let dt = 1.0/(steps - 1);
+
+    for (let iy = 0; iy < dimen2; iy++) {
+      for (let ix = 0; ix < dimen2; ix++) {
+        let x = (ix*idimen2 - 0.5)*2.0*sensor;
+        let y = (iy*idimen2 - 0.5)*2.0*sensor;
+
+        //ray2.zero().addFac(up, y*sensor).addFac(side, x*sensor);
+        //ray2.addFac(ray, depth);
+        //ray2.normalize().mulScalar(1.75).add(origin);
+
+        ray2.loadXYZ(x, y, startz);
+        ray2.multVecMatrix(imat);
+
+        p2.load(ray2);
+
+        const rdist = 5.25;
+/*
+        if (!cam.isPerspective) {
+          start.load(origin).addFac(ray, startt);
+          end.load(ray2).addFac(ray, rdist);
+          ray2.normalize();
+        } else {*/
+          ray2.sub(origin).normalize();
+
+          start.load(origin).addFac(ray2, startt);
+          end.load(ray2).mulScalar(rdist).add(origin);
+        //}
+
+        let t = 0.0;
+
+        let sum = 0.0;
+        let sumr = 0.0;
+        let sumg = 0.0;
+        let sumb = 0.0;
+
+        let first = true;
+
+        for (let i = 0; i < steps; i++, t += dt) {
+          let t2 = t + (Math.random()-0.5)*dt;
+
+          p.load(start).interp(end, t2);
+
+          //p.mulScalar(0.5).addScalar(0.5);
+          p.addScalar(0.5);
+
+          if (p[0] < 0.0 || p[1] < 0.0 || p[2] < 0.0 || p[0] >= 1.0 || p[1] >= 1.0 || p[2] >= 1.0) {
+            continue;
+          }
+
+          let x = ~~(p[0]*dimen + 0.5);
+          let y = ~~(p[1]*dimen + 0.5);
+          let z = ~~(p[2]*dimen + 0.5);
+
+          let idx = (z*dimen*dimen + y*dimen + x)*LTOT;
+
+          let r = lut[idx]*4.0;
+          let g = lut[idx + 1]*4.0;
+          let b = lut[idx + 2]*4.0;
+
+          let w = (r*r + g*g + b*b);
+          sum += w;
+
+          if (w > 0.1) {
+            sumr = r;
+            sumg = g;
+            sumb = b;
+
+            first = false;
+            break;
+          }
+
+          //break;
+        }
+
+        let idx = (iy*dimen2 + ix)*4;
+
+        if (!sum) {
+          //p2.mulScalar(0.1);
+          idata[idx] = Math.fract(p2[0]*500)*100.0;
+          idata[idx + 1] = Math.fract(p2[1]*500)*100.0;
+          idata[idx + 2] = Math.fract(p2[2]*500)*100.0;
+          idata[idx + 3] = 255;
+          continue;
+        }
+
+        if (sum === 0.0) {
+          idata[idx] = idata[idx + 1] = idata[idx + 2] = 0.0;
+          idata[idx + 3] = 255;
+          continue;
+        }
+
+        idata[idx] = sumr*255;
+        idata[idx + 1] = sumg*255;
+        idata[idx + 2] = sumb*255;
+        idata[idx + 3] = 255;
+      }
+    }
+
+    let canvas = document.createElement("canvas");
+    let g = canvas.getContext("2d");
+    canvas.width = canvas.height = dimen2;
+    g.putImageData(image, 0, 0);
+
+    let rect = [
+      [0, 0, 0], [0, 1, 0], [1, 1, 0], [1, 0, 0],
+      [0, 0, 1], [0, 1, 1], [1, 1, 1], [1, 0, 1],
+    ];
+
+    rect = rect.map(f => {
+      f = new Vector4(f);
+      f.subScalar(0.5);
+
+      f[3] = 1.0;
+      f.multVecMatrix(mat);
+
+      if (f[3] !== 0.0) {
+        f.mulScalar(1.0/f[3]);
+      }
+
+      f.mulScalar(1.0/sensor);
+      f.mulScalar(0.5).addScalar(0.5);
+      f.mulScalar(dimen2);
+
+      return f;
+    });
+
+    let r = rect;
+
+    g.beginPath();
+    g.moveTo(r[0][0], r[0][1]);
+    g.lineTo(r[1][0], r[1][1]);
+    g.lineTo(r[2][0], r[2][1]);
+    g.lineTo(r[3][0], r[3][1]);
+    g.lineTo(r[0][0], r[0][1]);
+
+    g.moveTo(r[4][0], r[4][1]);
+    g.lineTo(r[5][0], r[5][1]);
+    g.lineTo(r[6][0], r[6][1]);
+    g.lineTo(r[7][0], r[7][1]);
+    g.lineTo(r[4][0], r[4][1]);
+
+    g.moveTo(r[0][0], r[0][1]);
+    g.lineTo(r[4][0], r[4][1]);
+    g.moveTo(r[1][0], r[1][1]);
+    g.lineTo(r[5][0], r[5][1]);
+    g.moveTo(r[2][0], r[2][1]);
+    g.lineTo(r[6][0], r[6][1]);
+    g.moveTo(r[3][0], r[3][1]);
+    g.lineTo(r[7][0], r[7][1]);
+
+    g.strokeStyle = "orange";
+    g.stroke();
+
+    if (0) {
+      //console.log(r);
+      canvas.toBlob(blob => {
+        let url = URL.createObjectURL(blob);
+
+        console.log(url);
+        //window.open(url);
+      });
+    }
+
+    window.renderedLut = canvas;
+  }
+
   makeLUTImage(lut, dimen, makeRev = false) {
     if (!lut && this.lut && this.rlut && this.lut.dimen === this.rlut.dimen) {
       return this.makeUnifiedLUTImage();
@@ -1741,7 +2010,7 @@ export class PigmentSet extends Array {
       let m = Math.random();
       let y = Math.random();
       let k;
-      //let k = Math.random();
+      //let k = Math.fom();
 
       if (1) {
         /* lower sample bias by throwing away invalid samples */
@@ -1800,7 +2069,7 @@ export class PigmentSet extends Array {
       }
 
       if (isNaN(rgb.dot(rgb))) {
-        console.warn(rgb, i, ws);
+        console.warn(rgb, ws);
         throw new Error("NaN!");
       }
 
@@ -1987,9 +2256,9 @@ export class PigmentSet extends Array {
               lut[idx2*4 + 3] = lut[idx*4 + 3];
             } else {
               lut[idx2*4] = ff;
-              lut[idx2*4+1] = ff;
-              lut[idx2*4+2] = ff;
-              lut[idx2*4+3] = ff;
+              lut[idx2*4 + 1] = ff;
+              lut[idx2*4 + 2] = ff;
+              lut[idx2*4 + 3] = ff;
             }
           }
         }
@@ -2204,7 +2473,8 @@ window.__blur3d = function __blur3d(lut, mask, isNormed) {
 
 PigmentSet.STRUCT = `
 PigmentSet {
-  this : array(Pigment);
+  this         : array(Pigment);
+  renderCamera : Camera;
 }
 `;
 nstructjs.register(PigmentSet);

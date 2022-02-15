@@ -4,29 +4,110 @@ import {
 } from '../path.ux/scripts/pathux.js';
 import {Pigment, pigment_data, WIDE_GAMUT} from './colormodel.js';
 
+import '../util/numeric.js';
+
+window.fftTables = function(scale=0.01) {
+  let ps = _appstate.canvas.pigments;
+
+  for (let p of ps) {
+    p.updateGen++;
+    let lists = [pigment_data.pigmentKS[p.pigment].S, pigment_data.pigmentKS[p.pigment].K];
+
+    for (let i=0; i<lists.length; i++) {
+      let a = lists[i];
+      let n = a.length;
+      let mid = a.mid;
+
+      if (a.phase) {
+        for (let j=0; j<a.length; j++) {
+          a[j] /= scale;
+        }
+
+        numeric.ifftpow2(a, a.phase);
+
+        for (let j=0; j<a.length; j++) {
+          a[j] += mid;
+        }
+
+        //a.length = n;
+        a.phase = undefined;
+      } else {
+        let b = [];
+        for (let j=0; j<n; j++) {
+          b.push(j);
+        }
+        let mid = 0.0;
+
+        for (let j=0; j<a.length; j++) {
+          mid += a[j];
+        }
+        mid /= a.length;
+
+        for (let j=0; j<a.length; j++) {
+          a[j] -= mid;
+        }
+
+        numeric.fftpow2(a, b);
+
+        for (let j=0; j<a.length; j++) {
+          a[j] *= scale;
+        }
+
+        //a.length = n;
+        //b.length = n;
+
+        a.mid = mid;
+        a.phase = b;
+      }
+
+      //a.length = b.length = n;
+    }
+  }
+}
 let kstemps = util.cachering.fromConstructor(Vector4, 64);
 let cstemps = util.cachering.fromConstructor(Vector3, 64);
 
 const MAXIMIZE_GAMUT = WIDE_GAMUT;
+
+window.GRAD_FAC = 1.0;
+
+window.DECAY = 1.0;
+window.RANDFAC = 1.0;
+window.RANDDECAY = 1.0;
+window.HIGH_PASS = 1.0;
+window.SOLVERS = 3; //bitmask, 1 is gradient descent, 2 is annealing
+
+/*
+window.DECAY = 0.02; window.RANDFAC = 0.4; window.RANDDECAY=0.005; window.HIGH_PASS = 0.001; window.SOLVERS = 2
+*/
+
+let last_times = new Map();
+
+function doprint(idx) {
+  let time = last_times.get(idx);
+
+  if (time === undefined) {
+    time = util.time_ms();
+    last_times.set(idx, time);
+  }
+
+  if (util.time_ms() - time > 450) {
+    let arguments2 = util.list(arguments).slice(1, arguments.length);
+    console.log(...arguments2);
+    last_times.set(idx, util.time_ms());
+  }
+}
 
 export class Optimizer {
   constructor(pigments) {
     this.pigments = pigments;
     this.last_log = util.time_ms();
     this.rand = new util.MersenneRandom();
+    this.rand2 = new util.MersenneRandom();
     this.stepi = 0;
 
     this.cdimen = 8;
     this.cube = new Int8Array(this.cdimen**3);
-  }
-
-  log() {
-    if (util.time_ms() - this.last_log < 150) {
-      return;
-    }
-
-    console.log(...arguments);
-    this.last_log = util.time_ms();
   }
 
   start() {
@@ -170,7 +251,7 @@ export class Optimizer {
     }
 
     if (MAXIMIZE_GAMUT) {
-      err += 1.0 - totcube;
+      err += 2.0*(1.0 - totcube)**2;
     }
 
     return err;
@@ -179,12 +260,21 @@ export class Optimizer {
   gradientDescent(points) {
     let ps = this.pigments;
 
+    let origs;
+
+    if (MAXIMIZE_GAMUT) {
+      origs = this.saveOrig(ps);
+    }
+
     let df = MAXIMIZE_GAMUT ? 0.001 : 0.0001;
     let oneDf = 1.0/df;
 
     let gs = [];
     let r1 = this.error(points);
     let totg = 0.0;
+
+    let gk = MAXIMIZE_GAMUT ? 0.2 : 1.0;
+    gk *= window.GRAD_FAC ?? 1.0;
 
     for (let p of ps) {
       let grads = [[], []];
@@ -230,7 +320,7 @@ export class Optimizer {
     }
 
     r1 /= totg;
-    let fac = -r1*0.875;
+    let fac = -r1*0.875*gk;
 
     for (let i = 0; i < ps.length; i++) {
       let pdata = pigment_data.pigmentKS[ps[i].pigment];
@@ -248,11 +338,46 @@ export class Optimizer {
       }
     }
 
+    if (MAXIMIZE_GAMUT && r1 < this.error(points)) {
+      this.loadOrig(ps, origs);
+    }
+
     if (MAXIMIZE_GAMUT) {
       //window.COLOR_SCALE += fac*scale_g*0.05;
     }
 
-    console.log("totg:", totg, gs);
+    doprint(0, "totg:", totg, gs);
+  }
+
+  saveOrig(ps) {
+    let origs = [];
+
+    for (let i = 0; i < ps.length; i++) {
+      let pdata = pigment_data.pigmentKS[ps[i].pigment];
+      let tables = [pdata.K, pdata.S];
+
+      let orig = [pdata.K.concat([]), pdata.S.concat([])];
+      origs.push(orig);
+    }
+
+    return origs;
+  }
+
+  loadOrig(ps, origs) {
+    for (let i = 0; i < ps.length; i++) {
+      let pdata = pigment_data.pigmentKS[ps[i].pigment];
+      let tables = [pdata.K, pdata.S];
+      let orig = origs[i];
+
+      for (let tablei = 0; tablei < 2; tablei++) {
+        let table = tables[tablei];
+        let otable = orig[tablei];
+
+        for (let j = 0; j < table.length; j++) {
+          table[j] = otable[j];
+        }
+      }
+    }
   }
 
   annealing(points) {
@@ -260,11 +385,19 @@ export class Optimizer {
 
     let r1 = this.error(points);
 
-    let rfac = Math.exp(-this.stepi*0.001)*0.01;
-    let prob = Math.exp(-this.stepi*0.0005)*0.21;
+    let decay = MAXIMIZE_GAMUT ? 0.005 : 0.0005;
 
-    console.log(rfac.toFixed(4), prob.toFixed(4));
+    decay *= window.DECAY;
+
+    let rdecay = window.RANDDECAY ?? 1.0;
+
+    let rfac = Math.exp(-this.stepi*0.001*rdecay)*0.2*(window.RANDFAC ?? 1.0);
+    let prob = Math.exp(-this.stepi*decay)*0.41;
+
+    doprint(1, rfac.toFixed(4), prob.toFixed(4));
     let origs = [];
+
+    let rand2 = this.rand2;
 
     for (let i = 0; i < ps.length; i++) {
       let pdata = pigment_data.pigmentKS[ps[i].pigment];
@@ -277,18 +410,18 @@ export class Optimizer {
         let table = tables[tablei];
 
         for (let j = 0; j < table.length; j++) {
-          if (Math.random() > 0.1) {
+          if (rand2.random() > 0.1) {
             continue;
           }
 
-          table[j] += (Math.random() - 0.5)*rfac;
+          table[j] += (rand2.nrandom() - 0.5)*rfac;
           table[j] = Math.max(table[j], 0.0);
         }
       }
     }
 
     let r2 = this.error(points);
-    let bad = r2 > r1 && Math.random() > prob;
+    let bad = r2 > r1 && rand2.random() > prob;
 
     if (bad) {
       for (let i = 0; i < ps.length; i++) {
@@ -308,7 +441,7 @@ export class Optimizer {
     }
   }
 
-  highPassFilter() {
+  highPassFilter(err=1.0) {
     let ps = this.pigments;
 
     for (let i = 0; i < ps.length; i++) {
@@ -320,7 +453,7 @@ export class Optimizer {
 
         let ma = new util.MovingAvg(8);
 
-        let t = 0.0025;
+        let t = window.HIGH_PASS*0.001*err;
 
         for (let j = 0; j < table.length; j++) {
           table[j] = ma.add(table[j])*t + table[j]*(1.0-t);
@@ -339,18 +472,20 @@ export class Optimizer {
 
     //this.highPassFilter();
 
-    if (1 && (this.stepi%2 === 0)) {
+    if ((window.SOLVERS & 2) && (this.stepi%2 === 0)) {
       this.annealing(points);
-    } else {
+    } else if (window.SOLVERS & 1) {
       this.gradientDescent(points);
     }
 
     let err = this.error(points);
 
+    this.highPassFilter(err);
+
     if (MAXIMIZE_GAMUT) {
-      console.log("error:", this.stepi%rate, err, "COLOR_SCALE:", window.COLOR_SCALE.toFixed(3));
+      doprint(2, "error:", this.stepi%rate, err, "COLOR_SCALE:", window.COLOR_SCALE.toFixed(3));
     } else {
-      console.log("error:", this.stepi%rate, err);
+      doprint(2, "error:", this.stepi%rate, err);
     }
 
     for (let p of this.pigments) {

@@ -1,7 +1,7 @@
 "use strict";
 
 var numeric = (typeof exports === "undefined")?(function numeric() {}):(exports);
-if(typeof global !== "undefined") { global.numeric = numeric; }
+if(typeof globalThis !== "undefined") { globalThis.numeric = numeric; }
 
 numeric.version = "1.2.6";
 
@@ -2609,11 +2609,20 @@ numeric.spline = function spline(x,y,k1,kn) {
 
 // 8. FFT
 numeric.fftpow2 = function fftpow2(x,y) {
+    if(x.length === 1) return;
+
+    let log2 = Math.ceil(Math.log2(x.length));
+    while (x.length < (1<<log2)) {
+        x.push(0.0);
+        y.push(0.0);
+    }
+
     var n = x.length;
-    if(n === 1) return;
+
     var cos = Math.cos, sin = Math.sin, i,j;
-    var xe = Array(n/2), ye = Array(n/2), xo = Array(n/2), yo = Array(n/2);
-    j = n/2;
+    var xe = Array(n>>1), ye = Array(n>>1), xo = Array(n>>1), yo = Array(n>>1);
+    j = n>>1;
+
     for(i=n-1;i!==-1;--i) {
         --j;
         xo[j] = x[i];
@@ -2628,7 +2637,7 @@ numeric.fftpow2 = function fftpow2(x,y) {
     var t,k = (-6.2831853071795864769252867665590057683943387987502116419/n),ci,si;
     for(i=n-1;i!==-1;--i) {
         --j;
-        if(j === -1) j = n/2-1;
+        if(j === -1) j = (n>>1)-1;
         t = k*i;
         ci = cos(t);
         si = sin(t);

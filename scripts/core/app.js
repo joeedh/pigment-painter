@@ -1,4 +1,5 @@
 import '../../wasm/wasm_api.js';
+import '../util/numeric.js';
 
 import {
   simple, Vector2, Vector3, Vector4,

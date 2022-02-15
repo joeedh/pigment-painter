@@ -1461,6 +1461,8 @@ export class Texture {
 //cameras will derive from this class
 export class DrawMats {
   constructor() {
+    this.isPerspective = true;
+
     this.cameramat = new Matrix4();
     this.persmat = new Matrix4();
     this.rendermat = new Matrix4();
@@ -1472,14 +1474,16 @@ export class DrawMats {
     this.inormalmat = new Matrix4();
   }
 
-  regen_mats(aspect) {
+  /** aspect should be sizex / sizey */
+  regen_mats(aspect = this.aspect) {
     this.aspect = aspect;
 
+    this.rendermat.load(this.persmat).multiply(this.cameramat);
     this.normalmat.load(this.cameramat).makeRotationOnly();
 
     this.icameramat.load(this.cameramat).invert();
-    this.ipersmat.load(this.cameramat).invert();
-    this.irendermat.load(this.cameramat).invert();
+    this.ipersmat.load(this.persmat).invert();
+    this.irendermat.load(this.rendermat).invert();
     this.inormalmat.load(this.normalmat).invert();
 
     return this;
@@ -1487,10 +1491,11 @@ export class DrawMats {
 
   toJSON() {
     return {
-      cameramat: this.cameramat.getAsArray(),
-      persmat  : this.persmat.getAsArray(),
-      rendermat: this.rendermat.getAsArray(),
-      normalmat: this.normalmat.getAsArray(),
+      cameramat    : this.cameramat.getAsArray(),
+      persmat      : this.persmat.getAsArray(),
+      rendermat    : this.rendermat.getAsArray(),
+      normalmat    : this.normalmat.getAsArray(),
+      isPerspective: this.isPerspective,
 
       icameramat: this.icameramat.getAsArray(),
       ipersmat  : this.ipersmat.getAsArray(),
@@ -1504,6 +1509,7 @@ export class DrawMats {
     this.persmat.load(obj.persmat);
     this.rendermat.load(obj.rendermat);
     this.normalmat.load(obj.normalmat);
+    this.isPerspective = obj.isPerspective;
 
     this.icameramat.load(obj.icameramat);
     this.ipersmat.load(obj.ipersmat);
@@ -1512,27 +1518,140 @@ export class DrawMats {
 
     return this;
   }
+
+  loadSTRUCT(reader) {
+    reader(this);
+  }
 }
 
-//simplest camera
+DrawMats.STRUCT = `
+DrawMats {
+  cameramat     : mat4;
+  persmat       : mat4;
+  rendermat     : mat4;
+  normalmat     : mat4;
+  icameramat    : mat4;
+  ipersmat      : mat4;
+  irendermat    : mat4;
+  inormalmat    : mat4;
+  isPerspective : int;
+}
+`;
+nstructjs.register(DrawMats);
+
+//simplest
 export class Camera extends DrawMats {
   constructor() {
     super();
+
+    this.isPerspective = true;
 
     this.fovy = 35;
     this.aspect = 1.0;
 
     this.pos = new Vector3([0, 0, 5]);
     this.target = new Vector3();
+    this.orbitTarget = new Vector3();
+
     this.up = new Vector3([1, 3, 0]);
     this.up.normalize();
 
-    this.near = 0.01;
+    this.near = 0.25;
     this.far = 10000.0;
   }
 
+  generateUpdateHash(objectMatrix = undefined) {
+    let mul = 1<<18;
+
+    let ret = 0;
+
+    function add(val) {
+      val = (val*mul) & ((1<<31) - 1);
+      ret = (ret ^ val) & ((1<<31) - 1);
+    }
+
+    add(this.near);
+    add(this.far);
+    add(this.fovy);
+    add(this.aspect);
+    add(this.isPerspective);
+    add(this.pos[0]);
+    add(this.pos[1]);
+    add(this.pos[2]);
+    add(this.target[0]);
+    add(this.target[1]);
+    add(this.target[2]);
+    add(this.up[0]);
+    add(this.up[1]);
+    add(this.up[2]);
+
+    if (objectMatrix !== undefined) {
+      let m = objectMatrix.$matrix;
+
+      add(m.m11);
+      add(m.m12);
+      add(m.m13);
+      add(m.m21);
+      add(m.m22);
+      add(m.m23);
+      add(m.m31);
+      add(m.m32);
+      add(m.m33);
+    }
+
+    return ret;
+  }
+
+  load(b) {
+    this.isPerspective = b.isPerspective;
+    this.fovy = b.fovy;
+    this.aspect = b.aspect;
+    this.pos.load(b.pos);
+    this.orbitTarget.load(b.orbitTarget);
+    this.target.load(b.target);
+    this.up.load(b.up);
+    this.near = b.near;
+    this.far = b.far;
+
+    this.regen_mats(this.aspect);
+
+    return this;
+  }
+
+  copy() {
+    let ret = new Camera();
+
+    ret.isPerspective = this.isPerspective;
+    ret.fovy = this.fovy;
+    ret.aspect = this.aspect;
+
+    ret.pos.load(this.pos);
+    ret.target.load(this.target);
+    ret.orbitTarget.load(this.orbitTarget);
+    ret.up.load(this.up);
+
+    ret.near = this.near;
+    ret.far = this.far;
+
+    ret.regen_mats(ret.aspect);
+
+    return ret;
+  }
+
+  reset() {
+    this.pos = new Vector3([0, 0, 5]);
+    this.target = new Vector3();
+    this.up = new Vector3([1, 3, 0]);
+    this.up.normalize();
+
+    this.regen_mats(this.aspect);
+    window.redraw_all();
+
+    return this;
+  }
+
   toJSON() {
-    let ret = super.toJSON();
+    var ret = super.toJSON();
 
     ret.fovy = this.fovy;
     ret.near = this.near;
@@ -1562,18 +1681,49 @@ export class Camera extends DrawMats {
     return this;
   }
 
-  regen_mats(aspect) {
+  /** aspect should be sizex / sizey*/
+  regen_mats(aspect = this.aspect) {
     this.aspect = aspect;
 
     this.persmat.makeIdentity();
-    this.persmat.perspective(this.fovy, aspect, this.near, this.far);
+    if (this.isPerspective) {
+      this.persmat.perspective(this.fovy, aspect, this.near, this.far);
+    } else {
+      this.persmat.isPersp = true;
+      let scale = 1.0/this.pos.vectorDistance(this.target);
+
+      this.persmat.makeIdentity();
+      this.persmat.orthographic(scale, aspect, this.near, this.far);
+
+      //this.persmat.scale(1, 1, -2.0/zscale, 1.0/scale);
+      //this.persmat.translate(0.0, 0.0, 0.5*zscale - this.near);
+    }
 
     this.cameramat.makeIdentity();
-    this.cameramat.lookat(this.pos, this.target, this.up);    //this.cameramat.translate(this.pos[0], this.pos[1], this.pos[2]);
+    this.cameramat.lookat(this.pos, this.target, this.up);
+    this.cameramat.invert();
 
     this.rendermat.load(this.persmat).multiply(this.cameramat);
     //this.rendermat.load(this.cameramat).multiply(this.persmat);
 
     super.regen_mats(aspect); //will calculate iXXXmat for us
   }
+
+  loadSTRUCT(reader) {
+    reader(this);
+  }
 }
+
+Camera.STRUCT = nstructjs.inherit(Camera, DrawMats) + `
+  fovy          : float;
+  aspect        : float;
+  target        : vec3;
+  orbitTarget   : vec3;
+  pos           : vec3;
+  up            : vec3;
+  near          : float;
+  far           : float;
+  isPerspective : bool;
+}
+`;
+nstructjs.register(Camera);
