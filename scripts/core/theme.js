@@ -254,14 +254,15 @@ export const theme = {
     MenuBG         : 'rgba(250, 250, 250, 1.0)',
     MenuBorder     : '1px solid grey',
     MenuHighlight  : 'rgba(155, 220, 255, 1.0)',
-    MenuSeparator  : `
-      width : 100%;
-      height : 2px;
-      padding : 0px;
-      margin : 0px;
-      border : none;
-      background-color : grey; 
-    `,
+    MenuSeparator  : {
+      width             : "100%",
+      height            : 0.5,
+      padding           : 0,
+      margin            : 0,
+      border            : "none",
+      "border-radius"   : 2,
+      "background-color": "grey",
+    },
     MenuSpacing    : 5,
     MenuText       : new CSSFont({
       font   : 'sans-serif',
