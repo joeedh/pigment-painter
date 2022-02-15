@@ -284,6 +284,7 @@ export const theme = {
     'border-radius'   : 1,
     height            : 18,
     width             : 90,
+    BoxHighlight      : 'rgb(165,214,245)',
   },
 
   numslider_simple: {
@@ -293,6 +294,7 @@ export const theme = {
     height            : 18,
     labelOnTop        : true,
     width             : 135,
+    BoxHighlight      : 'rgb(165,214,245)',
   },
 
   numslider_textbox: {
@@ -302,6 +304,7 @@ export const theme = {
     height            : 25,
     labelOnTop        : true,
     width             : 120,
+    BoxHighlight      : 'rgb(165,214,245)',
   },
 
   panel: {

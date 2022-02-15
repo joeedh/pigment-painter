@@ -577,10 +577,19 @@ export class CanvasEditor extends simple.Editor {
   }
 
   uiHasEvents(e) {
-    if (this.ctx && this.ctx.screen) {
-      let elem = this.ctx.screen.pickElement(e.x, e.y);
-      //console.log(elem.id);
-      if (elem !== this) {
+    if (e.y < this.ctx.menuBar.pos[1]) {
+      return true;
+    }
+
+    let elems = [this.header, this.sidebar];
+    for (let elem of elems) {
+      let rect = elem.getBoundingClientRect();
+
+      if (!rect) {
+        continue;
+      }
+
+      if (e.x >= rect.x && e.y >= rect.y && e.x <= rect.x+rect.width && e.y <= rect.y+rect.height) {
         return true;
       }
     }
@@ -589,11 +598,11 @@ export class CanvasEditor extends simple.Editor {
   }
 
   on_mousedown(e) {
-    console.log("mouse event!", e);
-
     if (this.uiHasEvents(e)) {
       return;
     }
+
+    console.log("mouse event!", e);
 
     this.start_mpos.load(this.getLocalMouse(e.x, e.y));
 

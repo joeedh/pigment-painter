@@ -128,8 +128,11 @@ export class BrushStrokeOp extends ImageOp {
 
   on_pointercancel(e) {
     console.error("POINTER CANCEL!");
+
+    let ctx = this.modal_ctx;
     this.modalEnd(false);
-    this.ctx.toolstack.undo();
+    ctx.toolstack.undo();
+
     window.redraw_all();
   }
 

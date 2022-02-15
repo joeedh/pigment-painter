@@ -28,6 +28,10 @@ export class Context {
     return simple.Editor.findEditor(CanvasEditor);
   }
 
+  get menuBar() {
+    return simple.Editor.findEditor(simple.MenuBarEditor);
+  }
+
   get brush() {
     return this.canvas.brush;
   }
