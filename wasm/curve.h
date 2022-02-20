@@ -24,6 +24,36 @@ public:
     }
   }
 
+  void bilinear(const FloatVec &a,
+                 const FloatVec &b,
+                 const FloatVec &c,
+                 const FloatVec &d,
+                 SplineFloat u,
+                 SplineFloat v) {
+    FloatVec k1, k2;
+
+    k1 = a + (b - a) * v;
+    k2 = d + (c - d) * v;
+
+    *this = k1 + (k2 - k1) * u;
+  }
+
+  void trilinear(const FloatVec a[8], SplineFloat u, SplineFloat v, SplineFloat w) {
+    FloatVec k1, k2;
+      
+    k1.bilinear(a[0], a[1], a[2], a[3], u, v);
+    k2.bilinear(a[4], a[5], a[6], a[7], u, v);
+
+    *this = k1 + (k2 - k1) * w;
+  }
+
+  void copyTo(SplineFloat *const dest) const {
+    dest[0] = m_data[0];
+    dest[1] = m_data[1];
+    dest[2] = m_data[2];
+    dest[3] = m_data[3];
+  }
+
   FloatVec &zero() {
     for (int i = 0; i < AXES; i++) {
       m_data[i] = 0.0;
@@ -150,7 +180,7 @@ public:
     return m_data[idx];
   }
 
-  FloatVec operator*(SplineFloat f) {
+  FloatVec operator*(const SplineFloat f) const {
     FloatVec v2;
 
     for (int i = 0; i < AXES; i++) {
@@ -160,7 +190,7 @@ public:
     return v2;
   }
 
-  FloatVec operator*(FloatVec &b) {
+  FloatVec operator*(const FloatVec &b) const {
     FloatVec v2;
 
     for (int i = 0; i < AXES; i++) {
@@ -170,7 +200,7 @@ public:
     return v2;
   }
 
-  FloatVec operator/(SplineFloat f) {
+  FloatVec operator/(const SplineFloat f) const {
     FloatVec v2;
 
     for (int i = 0; i < AXES; i++) {
@@ -180,7 +210,7 @@ public:
     return v2;
   }
 
-  FloatVec operator/(FloatVec &b) {
+  FloatVec operator/(const FloatVec &b) const {
     FloatVec v2;
 
     for (int i = 0; i < AXES; i++) {
@@ -190,7 +220,7 @@ public:
     return v2;
   }
 
-  FloatVec operator+(SplineFloat f) {
+  FloatVec operator+(const SplineFloat f) const {
     FloatVec v2;
 
     for (int i = 0; i < AXES; i++) {
@@ -200,7 +230,7 @@ public:
     return v2;
   }
 
-  FloatVec operator+(FloatVec &b) {
+  FloatVec operator+(const FloatVec &b) const {
     FloatVec v2;
 
     for (int i = 0; i < AXES; i++) {
@@ -210,7 +240,7 @@ public:
     return v2;
   }
 
-  FloatVec operator-(SplineFloat f) {
+  FloatVec operator-(const SplineFloat f) const {
     FloatVec v2;
 
     for (int i = 0; i < AXES; i++) {
@@ -220,7 +250,7 @@ public:
     return v2;
   }
 
-  FloatVec operator-(FloatVec &b) {
+  FloatVec operator-(const FloatVec &b) const {
     FloatVec v2;
 
     for (int i = 0; i < AXES; i++) {
@@ -239,19 +269,19 @@ private:
 };
 
 template <int AXES, typename SplineFloat = float>
-FloatVec<AXES, SplineFloat> operator+(float f, FloatVec<AXES, SplineFloat> v) {
+FloatVec<AXES, SplineFloat> operator+(const float f, const FloatVec<AXES, SplineFloat> v) {
   return v + f;
 }
 template <int AXES, typename SplineFloat = float>
-FloatVec<AXES, SplineFloat> operator-(float f, FloatVec<AXES, SplineFloat> v) {
+FloatVec<AXES, SplineFloat> operator-(const float f, const FloatVec<AXES, SplineFloat> v) {
   return v.negate() + f;
 }
 template <int AXES, typename SplineFloat = float>
-FloatVec<AXES, SplineFloat> operator*(float f, FloatVec<AXES, SplineFloat> v) {
+FloatVec<AXES, SplineFloat> operator*(const float f, const FloatVec<AXES, SplineFloat> v) {
   return v * f;
 }
 template <int AXES, typename SplineFloat = float>
-FloatVec<AXES, SplineFloat> operator/(float f, FloatVec<AXES, SplineFloat> v) {
+FloatVec<AXES, SplineFloat> operator/(const float f, const FloatVec<AXES, SplineFloat> v) {
   FloatVec<AXES, SplineFloat> tmp(f);
 
   return tmp / v;

@@ -58,6 +58,7 @@ export class BrushStrokeOp extends ImageOp {
     this.last_stroke_squish = 0.0;
     this.last_stroke_angle = 0.0;
     this.last_stroke_soft = 0.0;
+    this.last_stroke_alphaLighting = 0.0;
     this.last_stroke_mpos = new Vector2();
     this.last_stroke_mpos2 = new Vector2();
     this.last_stroke_mpos3 = new Vector2();
@@ -191,6 +192,7 @@ export class BrushStrokeOp extends ImageOp {
     let squish = brush.channels.evaluate("squish", mappings);
     let bangle = brush.channels.evaluate("angle", mappings);
     let soft = brush.channels.evaluate("soft", mappings);
+    let alphaLighting = brush.channels.evaluate("alphaLighting", mappings);
 
     if (was_first) {
       this.last_stroke_angle = bangle;
@@ -207,7 +209,7 @@ export class BrushStrokeOp extends ImageOp {
       console.log("FIRST", mpos[0], mpos[1]);
 
       let ds = new DotSample(mpos[0], mpos[1], dx, dy, 0.0, pressure, radius,
-        spacing, strength, bangle, squish, soft);
+        spacing, strength, bangle, squish, soft, alphaLighting);
 
       this.inputs.stroke.push(ds);
       this.last_mpos.load(mpos);
@@ -352,6 +354,7 @@ export class BrushStrokeOp extends ImageOp {
         let squish2 = this.last_stroke_squish;
         let bangle2 = this.last_stroke_angle;
         let soft2 = this.last_stroke_soft;
+        let alphaLighting2 = this.last_stroke_alphaLighting;
 
         let skip = mpos[0] < -radius*2 || mpos[0] >= ctx.canvas.width + radius*2;
         skip = skip || (mpos[1] < -radius*2 || mpos[1] >= ctx.canvas.height + radius*2);
@@ -366,6 +369,7 @@ export class BrushStrokeOp extends ImageOp {
         squish2 += (squish - squish2)*s;
         bangle2 += (bangle - bangle2)*s;
         soft2 += (soft - soft2)*s;
+        alphaLighting2 += (alphaLighting - alphaLighting2)*s;
 
         //if (isNaN(bangle2)) {
         //debugger;
@@ -379,7 +383,7 @@ export class BrushStrokeOp extends ImageOp {
         }
 
         let ds1 = new DotSample(mpos[0], mpos[1], dx, dy, t2, pressure2, radius, spacing,
-          strength, bangle2, squish2, soft2);
+          strength, bangle2, squish2, soft2, alphaLighting2);
 
         this.inputs.stroke.push(ds1);
         this.execDot(ctx, ds1);
@@ -392,6 +396,7 @@ export class BrushStrokeOp extends ImageOp {
       this.last_stroke_squish = squish;
       this.last_stroke_angle = bangle;
       this.last_stroke_soft = soft;
+      this.last_stroke_alphaLighting = alphaLighting;
 
       this.last_stroke_mpos3.load(this.last_stroke_mpos2);
       this.last_stroke_mpos2.load(this.last_stroke_mpos);

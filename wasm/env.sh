@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-alias python3=python.exe
-export PATH="/c/Python38:`cygpath $WASM_EMSDK`:$PATH"
+alias python3=$PYTHON3
+export PATH="/c/Python38:`cygpath $EMSCRIPTEN`:$PATH"
 
-source $WASM_EMSDK/emsdk_env.sh
+source $EMSCRIPTEN/emsdk_env.sh

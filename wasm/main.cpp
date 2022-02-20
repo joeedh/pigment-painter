@@ -211,19 +211,23 @@ static void copy_v4_v4(float *dst, float *src) {
   dst[3] = src[3];
 }
 
-struct ImageData {
+template <typename T, int DataRange> struct ImageDataT {
   int width;
   int height;
-  unsigned char *data;
+  T *data;
   int tilesize;
   int rowsize;  // tiles per row
   int channels; // ImageSlots::ORIG has 6, rgba plus a stroke_id short
   bool isLinear;
   int id;
 
-  unsigned char *mipmaps[16];
+  T *mipmaps[16];
   int totmips;
+
+  static const int dataRange = DataRange;
 };
+
+using ImageData = ImageDataT<unsigned char, 255>;
 
 enum BrushFlags { ACCUMULATE = 1 << 0 };
 
@@ -235,7 +239,9 @@ enum ImageSlots {
   ORIG,  // scratch image for origdata
   ALPHA, // brush mask "alpha", actually xy of normal map + height in r, and
   ACCUM, // actually for *non* accumulation mode
-  // of course mask in a
+  UPSCALE1,
+  UPSCALE2,
+  UPSCALETMP,
   NUM_IMAGES
 };
 
@@ -551,8 +557,8 @@ extern "C" void test() {
   }
 }
 
-static void sampleLUT(float *dest, float x, float y, float z, int zoff) {
-  const ImageData *lut = images + ImageSlots::LUT;
+static void sampleLUT(float *dest, int slot, float x, float y, float z, int zoff) {
+  const ImageData *lut = images + slot;
 
   x *= (float)(lut->tilesize - 1);
   y *= (float)(lut->tilesize - 1);
@@ -570,7 +576,7 @@ static void sampleLUT(float *dest, float x, float y, float z, int zoff) {
   ix += col * lut->tilesize;
   iy += row * lut->tilesize;
 
-  int idx = (iy * images[1].width + ix) << 2;
+  int idx = (iy * lut->width + ix) << 2;
 
   const unsigned char *data = lut->data;
 
@@ -580,15 +586,113 @@ static void sampleLUT(float *dest, float x, float y, float z, int zoff) {
   dest[1] = (float)data[idx + 2] / 255.0f;
 }
 
+static void sampleLUTi(float *dest, int slot, int ix, int iy, int iz) {
+  ImageData *lut = images + slot;
+
+  int col = iz % lut->rowsize;
+  int row = iz / lut->rowsize;
+
+  ix += col * lut->tilesize;
+  iy += row * lut->tilesize;
+
+  int idx = (iy * lut->width + ix) << 2;
+
+  dest[0] = lut->data[idx] / 255.0f;
+  dest[1] = lut->data[idx + 1] / 255.0f;
+  dest[2] = lut->data[idx + 2] / 255.0f;
+  dest[3] = lut->data[idx + 3] / 255.0f;
+}
+
+static void sampleLUTi_NonArray(float *dest, int slot, int ix, int iy, int iz) {
+  ImageData *lut = images + slot;
+  int dimen = lut->tilesize;
+
+  int idx = (iz * dimen * dimen + iy * dimen + ix) << 2;
+
+  dest[0] = lut->data[idx] / 255.0f;
+  dest[1] = lut->data[idx + 1] / 255.0f;
+  dest[2] = lut->data[idx + 2] / 255.0f;
+  dest[3] = lut->data[idx + 3] / 255.0f;
+}
+void xyzToTileArray(int out[2], int x, int y, int z, int tilesize, int rowsize) {
+  int col = z % rowsize;
+  int row = z / rowsize;
+
+  x += col * tilesize;
+  y += row * tilesize;
+
+  out[0] = x;
+  out[1] = y;
+}
+
+void tileArrayToXyz(int out[3], int x, int y, int width, int tilesize, int rowsize) {
+  int col = x / tilesize;
+  int row = y / tilesize;
+
+  int z = row * rowsize + col;
+
+  out[0] = x % tilesize;
+  out[1] = y % tilesize;
+  out[2] = z;
+}
+
+extern "C" void sampleLUTLinear(float *dest, int slot, float x, float y, float z) {
+  ImageData *image = images + slot;
+
+  x *= image->tilesize - 1;
+  y *= image->tilesize - 1;
+  z *= image->tilesize - 1;
+
+  float u = x - floorf(x);
+  float v = y - floorf(y);
+  float w = z - floorf(z);
+
+  x = floor(x + 0.00001);
+  y = floor(y + 0.00001);
+  z = floor(z + 0.00001);
+
+  int x1 = DIMENS_CLAMPi((int)x, image->tilesize);
+  int y1 = DIMENS_CLAMPi((int)y, image->tilesize);
+
+  int x2 = DIMENS_CLAMPi((int)x, image->tilesize);
+  int y2 = DIMENS_CLAMPi((int)y + 1, image->tilesize);
+
+  int x3 = DIMENS_CLAMPi((int)x + 1, image->tilesize);
+  int y3 = DIMENS_CLAMPi((int)y + 1, image->tilesize);
+
+  int x4 = DIMENS_CLAMPi((int)x + 1, image->tilesize);
+  int y4 = DIMENS_CLAMPi((int)y, image->tilesize);
+
+  float z1 = DIMENS_CLAMPi((int)z, image->tilesize);
+  float z2 = DIMENS_CLAMPi((int)z + 1, image->tilesize);
+
+  float4 samples[8];
+
+  sampleLUTi_NonArray(samples[0].data(), slot, x1, y1, z1);
+  sampleLUTi_NonArray(samples[1].data(), slot, x2, y2, z1);
+  sampleLUTi_NonArray(samples[2].data(), slot, x3, y3, z1);
+  sampleLUTi_NonArray(samples[3].data(), slot, x4, y4, z1);
+
+  sampleLUTi_NonArray(samples[4].data(), slot, x1, y1, z2);
+  sampleLUTi_NonArray(samples[5].data(), slot, x2, y2, z2);
+  sampleLUTi_NonArray(samples[6].data(), slot, x3, y3, z2);
+  sampleLUTi_NonArray(samples[7].data(), slot, x4, y4, z2);
+
+  float4 value;
+
+  value.trilinear(samples, u, v, w);
+  value.copyTo(dest);
+}
+
 static void colorToPigments(float color[4], float mix[4]) {
   if (images[ImageSlots::LUT].isLinear) {
     float color2[4];
     copy_v4_v4(color2, color);
 
     rgb_to_linear(color2);
-    sampleLUT(mix, color2[0], color2[1], color2[2], 0);
+    sampleLUT(mix, ImageSlots::LUT, color2[0], color2[1], color2[2], 0);
   } else {
-    sampleLUT(mix, color[0], color[1], color[2], 0);
+    sampleLUT(mix, ImageSlots::LUT, color[0], color[1], color[2], 0);
   }
 
   mix[3] = 1.0f - mix[0] - mix[1] - mix[2];
@@ -604,7 +708,7 @@ static void pigmentToColor(float color[4], float mix[4]) {
   float rg = (ditherRand.random() - 0.5f) / 255.0f;
   float rb = (ditherRand.random() - 0.5f) / 255.0f;
 
-  sampleLUT(color, mix[0] + rr, mix[1] + rg, mix[2] + rb, images[1].tilesize);
+  sampleLUT(color, ImageSlots::LUT, mix[0] + rr, mix[1] + rg, mix[2] + rb, images[1].tilesize);
 
   if (images[ImageSlots::LUT].isLinear) {
     linear_to_rgb(color);
@@ -648,7 +752,7 @@ static void mixColorsPigment(float dest[4], float *cs[], float ws[], int totcolo
   }
 
   pigmentToColor(dest, mix);
-  //madd_v4_v4fl(dest, delta, -1.0f);
+  // madd_v4_v4fl(dest, delta, -1.0f);
 
   dest[3] = alpha;
 
@@ -848,7 +952,7 @@ static void execDrawMask(float x, float y, float dx, float dy, float t, float pr
         iaccum->data[oidx + 5] = (brush.stroke_id >> 8) & 255;
 
         for (int i = 0; i < 3; i++) {
-          iaccum->data[oidx+i] = brush.color[i] * 255.0f;
+          iaccum->data[oidx + i] = brush.color[i] * 255.0f;
         }
 
         iaccum->data[oidx + 3] = 0;
@@ -948,7 +1052,7 @@ static void execDrawMask(float x, float y, float dx, float dy, float t, float pr
       }
 
       float alpha = ca[3];
-      
+
       if (alpha < w) {
         alpha = std::min(ca[3] + c3[3] * w, w);
       }
@@ -964,7 +1068,7 @@ static void execDrawMask(float x, float y, float dx, float dy, float t, float pr
 
       mixColors(c2, colors, ws, 2);
 
-      //copy_v4_v4(c2, ca.data());
+      // copy_v4_v4(c2, ca.data());
 
       for (int i = 0; i < 4; i++) {
         iaccum->data[oidx + i] = ca[i] * 255.0f;
@@ -1296,4 +1400,40 @@ void initTables() {
 
 extern "C" int main(int argc, const char **argv) {
   initTables();
+}
+
+extern "C" void upscaleImage(int srcslot, int destslot, int dimen, int newdimen) {
+  ImageData *src = images + srcslot;
+  ImageData *dest = images + destslot;
+
+  unsigned char *lut2 = dest->data;
+
+  float dmul = 1.0f / (float)(newdimen - 1);
+
+  for (int iz = 0; iz < newdimen; iz++) {
+    for (int iy = 0; iy < newdimen; iy++) {
+      for (int ix = 0; ix < newdimen; ix++) {
+        float x = dmul * ix;
+        float y = dmul * iy;
+        float z = dmul * iz;
+
+        int idx = (iz * newdimen * newdimen + iy * newdimen + ix) << 2;
+
+        float val[4];
+        sampleLUTLinear(val, srcslot, x, y, z);
+
+#if 0
+        val[0] = x;
+        val[1] = y;
+        val[2] = z;
+        val[3] = 1.0f;
+#endif
+
+        lut2[idx] = val[0] * 255.0f;
+        lut2[idx + 1] = val[1] * 255.0f;
+        lut2[idx + 2] = val[2] * 255.0f;
+        lut2[idx + 3] = val[3] * 255.0f;
+      }
+    }
+  }
 }

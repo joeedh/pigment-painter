@@ -1807,6 +1807,11 @@ var _test = Module["_test"] = function() {
 };
 
 /** @type {function(...*):?} */
+var _sampleLUTLinear = Module["_sampleLUTLinear"] = function() {
+  return (_sampleLUTLinear = Module["_sampleLUTLinear"] = Module["asm"]["sampleLUTLinear"]).apply(null, arguments);
+};
+
+/** @type {function(...*):?} */
 var _setStrokeId = Module["_setStrokeId"] = function() {
   return (_setStrokeId = Module["_setStrokeId"] = Module["asm"]["setStrokeId"]).apply(null, arguments);
 };
@@ -1834,6 +1839,11 @@ var _execDot = Module["_execDot"] = function() {
 /** @type {function(...*):?} */
 var _main = Module["_main"] = function() {
   return (_main = Module["_main"] = Module["asm"]["main"]).apply(null, arguments);
+};
+
+/** @type {function(...*):?} */
+var _upscaleImage = Module["_upscaleImage"] = function() {
+  return (_upscaleImage = Module["_upscaleImage"] = Module["asm"]["upscaleImage"]).apply(null, arguments);
 };
 
 /** @type {function(...*):?} */

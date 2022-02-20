@@ -472,7 +472,7 @@ export class Optimizer {
 
     //this.highPassFilter();
 
-    if ((window.SOLVERS & 2) && (this.stepi%2 === 0)) {
+    if (1||(window.SOLVERS & 2) && (this.stepi%2 === 0)) {
       this.annealing(points);
     } else if (window.SOLVERS & 1) {
       this.gradientDescent(points);

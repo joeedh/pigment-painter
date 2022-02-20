@@ -10,6 +10,8 @@ export const USE_LUT_IMAGE = true;
 export const LINEAR_LUT = false;
 export const WEBGL_PAINTER = true;
 
+export const TRILINEAR_LUT = false;
+
 import {simple, util, nstructjs, math, UIBase, Vector3, Vector4, Matrix4} from '../path.ux/scripts/pathux.js';
 import * as color from './color.js';
 import {freqToWaveLength, getCie65, waveLengthToFreq} from './cie65.js';
@@ -17,7 +19,7 @@ import {linear_to_rgb, sRGBMatrix} from './color.js';
 
 import * as pigment_data_physical from './pigment_data.js';
 import * as pigment_data_wide from './pigment_data_wide.js';
-import {getSearchOffs} from './canvas.js';
+import {getSearchOffs, ImageSlots} from './canvas.js';
 
 export const pigment_data = WIDE_GAMUT ? pigment_data_wide : pigment_data_physical;
 
@@ -88,6 +90,9 @@ window.COLOR_SCALE = WIDE_GAMUT ? 2.0 : (!LINEAR_LUT ? 1.2 : 1.0);
 window.REFL_K1 = 0.030;
 window.REFL_K2 = 0.650;
 
+export const START_REFL_K1 = REFL_K1;
+export const START_REFL_K2 = REFL_K2;
+
 function g(x, mu, o1, o2) {
   if (x < mu) {
     return Math.exp((-0.5*(x - mu)**2)/o1**2);
@@ -97,6 +102,7 @@ function g(x, mu, o1, o2) {
 }
 
 import {xhat, yhat, zhat} from './cie10.js';
+import {makeSharedImageData, wasmModule} from '../../wasm/wasm_api.js';
 
 /*
 //xyz cie 2 degree chromiticty functions
@@ -1112,13 +1118,18 @@ Pigment {
 `;
 simple.DataModel.register(Pigment);
 
-let LC = 0, LM = 1, LY = 2, LK = 3, LTOT = 4;
+let LC = 0, LM = 1, LY = 2, LK = 3;
+export let LTOT = 4;
 
 let sampleRets = util.cachering.fromConstructor(Vector4, 1024);
 
 export class PigmentSet extends Array {
   constructor() {
     super();
+
+    this.useCustomKs = false;
+    this.k1 = REFL_K1;
+    this.k2 = REFL_K2;
 
     this.initRenderCamera();
     this._cameraDragging = false;
@@ -1163,6 +1174,104 @@ export class PigmentSet extends Array {
       this._last_hash = hash;
       this.makeLUTs();
     }
+  }
+
+  upscaleLUT2(lut, newdimen, isNormed = false) {
+    let iter = this.upscaleLUT2Job(lut, newdimen, isNormed);
+
+    while (1) {
+      let next = iter.next();
+
+      if (next.done) {
+        return next.value;
+      }
+    }
+  }
+
+  * upscaleLUT2Job(lut, newdimen, isNormed = false, reporter = function (msg, percent) {
+  }) {
+    if (newdimen <= lut.dimen) {
+      return lut;
+    }
+
+    let lut2 = new Float32Array(newdimen**3*LTOT);
+    lut2.fill(0.0);
+    lut2.dimen = newdimen;
+
+    let dimen = lut.dimen;
+    let dmul = 1.0/(newdimen - 1);
+    let time = util.time_ms(), yieldtime = util.time_ms();
+    let count = 0, tot = newdimen**3 - 1;
+
+    let size1 = Math.ceil(Math.sqrt(dimen))*dimen;
+    let size2 = Math.ceil(Math.sqrt(newdimen))*newdimen;
+
+    if (1) {
+      let tmp1 = makeSharedImageData(size1, size1, ImageSlots.UPSCALE1, dimen, false);
+      let tmp2 = makeSharedImageData(size2, size2, ImageSlots.UPSCALE2, newdimen, false);
+
+      let idata1 = tmp1.data;
+      let idata2 = tmp2.data;
+
+      let itot = lut.length / LTOT;
+
+      for (let i = 0; i < itot; i++) {
+        idata1[i*4] = lut[i*LTOT]*255.0;
+        idata1[i*4 + 1] = lut[i*LTOT + 1]*255.0;
+        idata1[i*4 + 2] = lut[i*LTOT + 2]*255.0;
+        idata1[i*4 + 3] = lut[i*LTOT + 3]*255.0;
+      }
+
+      wasmModule.asm.upscaleImage(ImageSlots.UPSCALE1, ImageSlots.UPSCALE2, dimen, newdimen);
+
+      itot = lut2.length / LTOT;
+      let one255 = 1.0 / 255.0;
+
+      for (let i = 0; i < itot; i++) {
+        lut2[i*LTOT] = idata2[i*4] * one255;
+        lut2[i*LTOT+1] = idata2[i*4+1] * one255;
+        lut2[i*LTOT+2] = idata2[i*4+2] * one255;
+        lut2[i*LTOT+3] = idata2[i*4+3] * one255;
+      }
+
+      return lut2;
+    }
+    console.error("NEWDIMEN", newdimen);
+
+    for (let iz = 0; iz < newdimen; iz++) {
+      for (let iy = 0; iy < newdimen; iy++) {
+        if (util.time_ms() - yieldtime > 150) {
+          yield;
+          yieldtime = util.time_ms();
+        }
+
+        if (util.time_ms() - time > 300) {
+          reporter("Upscale", count/tot);
+          time = util.time_ms();
+        }
+
+        for (let ix = 0; ix < newdimen; ix++) {
+          let x = dmul*ix;
+          let y = dmul*iy;
+          let z = dmul*iz;
+
+          let val = this.sampleLUT(x, y, z, lut, true, isNormed, false);
+
+          let idx = (iz*newdimen*newdimen + iy*newdimen + ix)*LTOT;
+
+          lut2[idx] = val[0];
+          lut2[idx + 1] = val[1];
+          lut2[idx + 2] = val[2];
+          lut2[idx + 3] = val[3];
+
+          count++;
+        }
+      }
+    }
+
+    reporter("Upscale", 1.0);
+
+    return lut2;
   }
 
   upscaleLUT(lut, levels = 1) {
@@ -1273,10 +1382,14 @@ export class PigmentSet extends Array {
     return lut2;
   }
 
-  sampleLUT(r, g, b, lut = this.lut, bilinear = false) {
+  sampleLUT(r, g, b, lut = this.lut, bilinear = TRILINEAR_LUT, isNormed = true, sampleUnified = true) {
     if (!lut) {
       this.makeLUTs();
       lut = this.lut;
+    }
+
+    if (sampleUnified && this.unifiedLut) {
+      return this._sampleUnifiedLut(r, g, b, lut !== this.lut);
     }
 
     r = Math.min(Math.max(r, 0.0), 1.0)*0.9999;
@@ -1327,9 +1440,11 @@ export class PigmentSet extends Array {
 
     r1.interp(r2, w);
 
-    let mul = r1[0] + r1[1] + r1[2] + r1[3];
-    if (mul !== 0.0) {
-      r1.mulScalar(1.0/mul);
+    if (isNormed) {
+      let mul = r1[0] + r1[1] + r1[2] + r1[3];
+      if (mul !== 0.0) {
+        r1.mulScalar(1.0/mul);
+      }
     }
 
     return r1;
@@ -1381,10 +1496,6 @@ export class PigmentSet extends Array {
   }
 
   _sampleLUT(x, y, z, lut) {
-    if (this.unifiedLut) {
-      return this._sampleUnifiedLut(x, y, z, lut !== this.lut);
-    }
-
     let dimen = lut.dimen;
 
     x = Math.min(Math.max(x, 0), dimen - 1);
@@ -1527,8 +1638,8 @@ export class PigmentSet extends Array {
       axis = 1;
     }
 
-    let t1 = (1.0 - origin[axis]) / ray[axis];
-    let t2 = -(origin[axis] + 1.0) / ray[axis];
+    let t1 = (1.0 - origin[axis])/ray[axis];
+    let t2 = -(origin[axis] + 1.0)/ray[axis];
     let startt;
 
     if (t1 > 0.0 && t2 > 0.0) {
@@ -1573,16 +1684,16 @@ export class PigmentSet extends Array {
         p2.load(ray2);
 
         const rdist = 5.25;
-/*
-        if (!cam.isPerspective) {
-          start.load(origin).addFac(ray, startt);
-          end.load(ray2).addFac(ray, rdist);
-          ray2.normalize();
-        } else {*/
-          ray2.sub(origin).normalize();
+        /*
+                if (!cam.isPerspective) {
+                  start.load(origin).addFac(ray, startt);
+                  end.load(ray2).addFac(ray, rdist);
+                  ray2.normalize();
+                } else {*/
+        ray2.sub(origin).normalize();
 
-          start.load(origin).addFac(ray2, startt);
-          end.load(ray2).mulScalar(rdist).add(origin);
+        start.load(origin).addFac(ray2, startt);
+        end.load(ray2).mulScalar(rdist).add(origin);
         //}
 
         let t = 0.0;
@@ -1595,7 +1706,7 @@ export class PigmentSet extends Array {
         let first = true;
 
         for (let i = 0; i < steps; i++, t += dt) {
-          let t2 = t + (Math.random()-0.5)*dt;
+          let t2 = t + (Math.random() - 0.5)*dt;
 
           p.load(start).interp(end, t2);
 
@@ -1888,7 +1999,17 @@ export class PigmentSet extends Array {
 
   }
 
-  makeReverseLut(dimen = 8, fillInEmptySpace = false, upscaleDimen = 128) {
+  makeReverseLut(dimen, fillInEmptySpace, upscaleDimen) {
+    for (let step of this.makeReverseLutJob(dimen, fillInEmptySpace, upscaleDimen)) {
+
+    }
+  }
+
+  * makeReverseLutJob(dimen            = 8,
+                      fillInEmptySpace = false,
+                      upscaleDimen     = 128,
+                      reporter         = function (msg, percent) {
+                      }) {
     fillInEmptySpace = false; //doesn't work properly
 
     let lut = this.rlut = new Float32Array(dimen*dimen*dimen*LTOT);
@@ -1898,6 +2019,8 @@ export class PigmentSet extends Array {
 
     let c = new Vector4();
     c[3] = 1.0;
+
+    let yieldtime = util.time_ms();
 
     let ps = this;
     let time = util.time_ms();
@@ -1910,42 +2033,53 @@ export class PigmentSet extends Array {
 
     const dimen2 = dimen; //-1;
 
+    function doPixel(x, y, z) {
+      if (1) {
+        c[0] = (x/(dimen2))**1;
+        c[1] = (y/(dimen2))**1;
+        c[2] = (z/(dimen2))**1;
+
+        c[3] = 1.0 - (c[0] + c[1] + c[2]);
+
+        c[3] = Math.max(c[3], 0.0);
+      }
+
+      //c.abs();
+
+      if (Math.abs((c[0] + c[1] + c[2] + c[3]) - 1.0) > 0.2) {
+        return;
+      }
+
+      used[z*dimen*dimen + y*dimen + x] = 1;
+
+
+      //c.mulScalar(0.5).addScalar(0.5);
+
+      let c2 = Pigment.toRGB(ps, c);
+
+      let li = (z*dimen*dimen + y*dimen + x)*LTOT;
+
+      lut[li + 0] = c2[0];
+      lut[li + 1] = c2[1];
+      lut[li + 2] = c2[2];
+      lut[li + 3] = 0.0;
+    }
+
     for (let x = 0; x < dimen; x++) {
       for (let y = 0; y < dimen; y++) {
         for (let z = 0; z < dimen; z++) {
-          if (1) {
-            c[0] = (x/(dimen2))**1;
-            c[1] = (y/(dimen2))**1;
-            c[2] = (z/(dimen2))**1;
+          doPixel(x, y, z);
 
-            c[3] = 1.0 - (c[0] + c[1] + c[2]);
-
-            c[3] = Math.max(c[3], 0.0);
+          if (util.time_ms() - yieldtime > 50) {
+            yield;
+            yieldtime = util.time_ms();
           }
-
-          //c.abs();
-
-          if (Math.abs((c[0] + c[1] + c[2] + c[3]) - 1.0) > 0.2) {
-            continue;
-          }
-
-          used[z*dimen*dimen + y*dimen + x] = 1;
-
-
-          //c.mulScalar(0.5).addScalar(0.5);
-
-          let c2 = Pigment.toRGB(ps, c);
-
-          let li = (z*dimen*dimen + y*dimen + x)*LTOT;
-
-          lut[li + 0] = c2[0];
-          lut[li + 1] = c2[1];
-          lut[li + 2] = c2[2];
-          lut[li + 3] = 0.0;
 
           if (util.time_ms() - time > 500) {
             time = util.time_ms();
-            let perc = (100.0*tot/itot).toFixed(3) + "%";
+            let perc = (100.0*tot/itot*4.0).toFixed(3) + "%";
+
+            reporter("Inverse LUT", tot/itot);
 
             console.log(`${perc}: doing ${tot + 1} of ${itot}`);
           }
@@ -1955,13 +2089,37 @@ export class PigmentSet extends Array {
       }
     }
 
+    reporter("Inverse LUT", 1.0);
+
+    /*
+
+    on factor;
+    operator wave;
+    clear wave;
+
+    procedure cos1(f);
+      cos(f);
+
+    comment: cos(f/pi)*0.5 + 0.5;
+
+    procedure wave(a, b, c, d);
+      cos1(a)*cos1(b + k)*cos1(c + 2*k)*cos1(d + 3*k);
+
+    f1 := wave(a, b, c, d) + wave(b, c, d, a) + wave(c, d, a, b) + wave(d, a, b, c) - 1.0;
+
+
+    * */
     if (fillInEmptySpace) {
       this.fillInLut(lut, used, false, false);
     }
 
-    let levels = this.getUpscaledLevels(dimen, upscaleDimen);
-    if (levels > 0) {
-      lut = this.rlut = this.upscaleLUT(lut, levels);
+    if (1) {
+      lut = this.rlut = yield* this.upscaleLUT2Job(lut, upscaleDimen, true, reporter);
+    } else {
+      let levels = this.getUpscaledLevels(dimen, upscaleDimen);
+      if (levels > 0) {
+        lut = this.rlut = this.upscaleLUT(lut, levels);
+      }
     }
 
     console.log("Made reverse LUT");
@@ -1969,12 +2127,41 @@ export class PigmentSet extends Array {
     return lut;
   }
 
+  swapLUTs() {
+    let tmp = this.lut;
+    this.lut = this.rlut;
+    this.rlut = tmp;
+
+    this.makeLUTImage();
+  }
+
   makeLUTs(dimen            = 32,
            fillInEmptySpace = true,
            upscaleDimen     = 128,
            stepMul          = 5.0,
            noReverse        = false) {
+
+    for (let step of this.makeLUTsJob(dimen, fillInEmptySpace, upscaleDimen, stepMul, noReverse)) {
+
+    }
+  }
+
+  * makeLUTsJob(dimen            = 32,
+                fillInEmptySpace = true,
+                upscaleDimen     = 128,
+                stepMul          = 5.0,
+                noReverse        = false,
+                reporter         = function (msg, percent) {
+                }) {
     let ds = 1.0/(dimen - 1);
+
+    if (this.useCustomKs) {
+      window.REFL_K1 = this.k1;
+      window.REFL_K2 = this.k2;
+    } else {
+      window.REFL_K1 = START_REFL_K1;
+      window.REFL_K2 = START_REFL_K2;
+    }
 
     let lut = this.lut = new Float32Array(dimen*dimen*dimen*LTOT);
     for (let i = 0; i < lut.length; i++) {
@@ -1998,6 +2185,42 @@ export class PigmentSet extends Array {
     let hitrate = 0;
 
     let totsteps = ~~(dimen*dimen*dimen*stepMul);
+
+    let yieldtime = util.time_ms();
+
+    let dopixel = (c, m, y, k) => {
+      ws[0] = c;
+      ws[1] = m;
+      ws[2] = y;
+      ws[3] = k;
+
+      rgb.load(Pigment.toRGB(this, ws));
+      min.min(rgb);
+      max.max(rgb);
+
+      for (let i = 0; i < 3; i++) {
+        rgb[i] = Math.min(Math.max(rgb[i], 0.0), 1.0)*0.99999;
+      }
+
+      let ir = ~~(rgb[0]*dimen);
+      let ig = ~~(rgb[1]*dimen);
+      let ib = ~~(rgb[2]*dimen);
+
+      let idx = (ib*dimen*dimen + ig*dimen + ir)*4;
+
+      if (used[idx/4] === 0) {
+        hitrate++;
+      } else {
+        hitrate = 0;
+      }
+
+      used[idx/4]++;
+
+      lut[idx] += ws[0];
+      lut[idx + 1] += ws[1];
+      lut[idx + 2] += ws[2];
+      lut[idx + 3] += ws[3];
+    }
 
     for (let step = 0; step < totsteps; step++) {
       /*
@@ -2031,37 +2254,12 @@ export class PigmentSet extends Array {
         k *= mul;
       }
 
-      ws[0] = c;
-      ws[1] = m;
-      ws[2] = y;
-      ws[3] = k;
+      dopixel(c, m, y, k);
 
-      rgb.load(Pigment.toRGB(this, ws));
-      min.min(rgb);
-      max.max(rgb);
-
-      for (let i = 0; i < 3; i++) {
-        rgb[i] = Math.min(Math.max(rgb[i], 0.0), 1.0)*0.99999;
+      if (util.time_ms() - yieldtime > 50) {
+        yield;
+        yieldtime = util.time_ms();
       }
-
-      let ir = ~~(rgb[0]*dimen);
-      let ig = ~~(rgb[1]*dimen);
-      let ib = ~~(rgb[2]*dimen);
-
-      let idx = (ib*dimen*dimen + ig*dimen + ir)*4;
-
-      if (used[idx/4] === 0) {
-        hitrate++;
-      } else {
-        hitrate = 0;
-      }
-
-      used[idx/4]++;
-
-      lut[idx] += ws[0];
-      lut[idx + 1] += ws[1];
-      lut[idx + 2] += ws[2];
-      lut[idx + 3] += ws[3];
 
       if (isNaN(ws.dot(ws))) {
         console.warn(ws);
@@ -2077,6 +2275,8 @@ export class PigmentSet extends Array {
         //console.log(rgb, idx, ws, ir, ig, ib);
         console.log(ws, step);
         let perc = (100.0*step/totsteps).toFixed(3) + "%";
+
+        reporter("LUT", step/totsteps);
 
         console.warn(`${perc}: doing ${tot + 1} of ${itot}`);
         time = util.time_ms();
@@ -2107,21 +2307,29 @@ export class PigmentSet extends Array {
       }
     }
 
+    reporter("LUT", 1.0);
+
     console.log("max", min, "max", max);
-    console.log("propegating into empty spaces. . .");
 
     if (fillInEmptySpace) {
-      this.fillInLut(lut, used, true);
+      console.log("propegating into empty spaces. . .");
+      for (let step of this.fillInLutJob(lut, used, true, reporter)) {
+        yield;
+      }
     }
 
-    let levels = this.getUpscaledLevels(dimen, upscaleDimen);
-    if (levels >= 1) {
-      lut = this.lut = this.upscaleLUT(lut, levels);
+    if (1) {
+      lut = this.lut = yield* this.upscaleLUT2Job(lut, upscaleDimen, true, reporter);
+    } else {
+      let levels = this.getUpscaledLevels(dimen, upscaleDimen);
+      if (levels >= 1) {
+        lut = this.lut = this.upscaleLUT(lut, levels);
+      }
     }
 
     console.log("TOT", tot);
     if (!noReverse) {
-      this.makeReverseLut(dimen, fillInEmptySpace, upscaleDimen);
+      yield* this.makeReverseLutJob(dimen, fillInEmptySpace, upscaleDimen, reporter);
     }
 
     return lut;
@@ -2137,6 +2345,13 @@ export class PigmentSet extends Array {
   }
 
   fillInLut(lut, used, isNormed = false, blur = true) {
+    for (let step of this.fillInLutJob(lut, used, isNormed, blur)) {
+
+    }
+  }
+
+  * fillInLutJob(lut, used, isNormed = false, blur = true, reporter = function (msg, percent) {
+  }) {
     const dimen = lut.dimen;
     let queue = [];
     let offs = [];
@@ -2188,14 +2403,7 @@ export class PigmentSet extends Array {
       mask[i] = !used[i];
     }
 
-    for (let step = 0; step < 1000; step++) {
-      if (queue.length === 0) {
-        break;
-      }
-
-      queue2.length = 0;
-      console.log(queue.length);
-
+    let doStep = (step) => {
       for (let i = 0; i < queue.length; i += 3) {
         let x = queue[i], y = queue[i + 1], z = queue[i + 2];
         let idx = dimen*dimen*z + dimen*y + x;
@@ -2302,6 +2510,24 @@ export class PigmentSet extends Array {
       queue2 = tmp;
     }
 
+    let startlen = queue.length*1.25;
+
+    for (let step = 0; step < 1000; step++) {
+      if (queue.length === 0) {
+        break;
+      }
+
+      queue2.length = 0;
+      console.log(queue.length);
+
+      reporter("Fill", queue.length/startlen);
+      yield;
+
+      doStep(step);
+    }
+
+    reporter("Fill", 1.0);
+
     if (!blur) {
       return;
     }
@@ -2312,7 +2538,9 @@ export class PigmentSet extends Array {
       this.makeVoxelBlurCode();
     }
 
+    reporter("Blur", 0.5);
     window.__blur3d(lut, mask, isNormed);
+    reporter("Blur", 1.0);
 
     return;
     for (let x = 0; x < dimen; x++) {
@@ -2449,11 +2677,11 @@ export class PigmentSet extends Array {
 
     if (!window.__blur3d) {
       let s = `
-window.__blur3d = function __blur3d(lut, mask, isNormed) {
-  const mr = new util.MovingAvg(4);
-  const mg = new util.MovingAvg(4);
-  const mb = new util.MovingAvg(4);
-  const ma = new util.MovingAvg(4);
+window.__blur3d = function __blur3d(lut, mask, isNormed, n=4) {
+  const mr = new util.MovingAvg(n);
+  const mg = new util.MovingAvg(n);
+  const mb = new util.MovingAvg(n);
+  const ma = new util.MovingAvg(n);
   
   const dimen = lut.dimen;
   
@@ -2469,15 +2697,39 @@ window.__blur3d = function __blur3d(lut, mask, isNormed) {
       eval(s);
     }
   }
+
+  static defineAPI(api, st) {
+    st.bool("useCustomKs", "useCustomKs", "Custom Specular Ks");
+    st.float("k1", "k1", "K1").noUnits().range(0.0, 1.0).step(0.01);
+    st.float("k2", "k2", "K2").noUnits().range(0.0, 1.0).step(0.01);
+
+    st.list("", "pigments", {
+      get(api, list, key) {
+        return list[key];
+      },
+      getKey(api, list, obj) {
+        return list.indexOf(obj);
+      },
+      getStruct(api, list, key) {
+        return api.mapStruct(Pigment);
+      },
+      getIter(api, list) {
+        return list[Symbol.iterator]();
+      }
+    })
+  }
 }
 
 PigmentSet.STRUCT = `
 PigmentSet {
   this         : array(Pigment);
   renderCamera : Camera;
+  useCustomKs  : bool;
+  k1           : float;
+  k2           : float;
 }
 `;
-nstructjs.register(PigmentSet);
+simple.DataModel.register(PigmentSet);
 
 export class ColorModel {
   constructor() {

@@ -8,6 +8,7 @@ import {Icons} from './icon_enum.js';
 import {makeSharedImageData} from '../../wasm/wasm_api.js';
 import {ImageSlots} from './canvas_base.js';
 import {wasmModule, wasmReady} from '../../wasm/wasm_api.js';
+import {Texture} from '../webgl/webgl.js';
 
 let brush_hash = new util.HashDigest();
 
@@ -40,12 +41,27 @@ export const BrushAlphaFlags = {
 };
 
 export class BrushAlpha {
-  constructor() {
-    this.imageName = "";
-    this.image = undefined;
-    this.tilesize = undefined;
+  constructor(name, image, tilesize) {
+    this.imageName = name;
+    this.image = image;
+    this.tilesize = tilesize
     this.flag = 0;
-    this.id = 0;
+    this.id = this.constructor.idgen++;
+    this.wasmLoaded = false;
+
+    this.gltex = undefined;
+  }
+
+  getGLTex(gl) {
+    if (this.gltex) {
+      return this.gltex;
+    }
+
+    let tex = new Texture(gl.createTexture(), gl);
+    tex.load(gl, this.image.width, this.image.height, this.image.data);
+
+    this.gltex = tex;
+    return tex;
   }
 
   get ready() {
@@ -100,9 +116,7 @@ export class BrushAlpha {
   }
 
   static register(name, image, tilesize) {
-    this.images[name] = {
-      name, image, tilesize, wasmLoaded: false, id: this.idgen++
-    };
+    this.images[name] = new BrushAlpha(name, image, tilesize);
 
     let k = name;
     let v = this.images[name].id;
@@ -572,7 +586,7 @@ export class BrushChannelSet extends Array {
       scatter      : {value: 2.75, range: [0.0, 100.0]},
       smear        : {value: 0.33, range: [0.0, 5.0]},
       smearLen     : {value: 3.5, range: [0.0, 50.0]},
-      smearRate    : 1.2,
+      smearRate    : {value: 1.2, uiName : "Rate"},
       spacing      : {value: 0.25, range: [0.001, 5.0]},
       alphaLighting: {value: 0.25, range: [0.0, 1.0], uiName: "light"},
       color        : new Vector4([0.0, 0.0, 0.0, 1.0]),
@@ -820,7 +834,7 @@ export class Brush {
     st.float("scatter", "scatter", "Scatter").range(0.0, 10.0).noUnits();
     st.float("smear", "smear", "smear", "Smear color pickup factor").range(0.0, 1.0).noUnits();
     st.float("smearLen", "smearLen", "Smear Len", "Smear Length").range(0.0, 50.0).noUnits();
-    st.float("smearRate", "smearRate", "Smear Rate", "Smear Rate").range(0.0, 50.0).noUnits();
+    st.float("smearRate", "smearRate", "Rate", "Smear Rate").range(0.0, 50.0).noUnits();
 
     //st.struct("channels", "channelSet", "Channels", api.mapStruct(BrushChannelSet, true));
     st.list("channels", "channels", {

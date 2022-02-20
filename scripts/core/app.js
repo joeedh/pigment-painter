@@ -1,5 +1,6 @@
 import '../../wasm/wasm_api.js';
 import '../util/numeric.js';
+import './settings_editor.js';
 
 import {
   simple, Vector2, Vector3, Vector4,
@@ -17,7 +18,9 @@ import {Icons} from './icon_enum.js';
 import {init_webgl} from '../webgl/webgl.js';
 import {WebGLPaint} from '../webgl/paint_webgl.js';
 import {loadShaders} from '../webgl/shaders.js';
-import {WEBGL_PAINTER} from './colormodel.js';
+import {PigmentSet, WEBGL_PAINTER} from './colormodel.js';
+
+import {ColorTripletSet, colorTripletSet} from './pairlut.js';
 
 export class Context {
   get canvas() {
@@ -32,8 +35,16 @@ export class Context {
     return simple.Editor.findEditor(simple.MenuBarEditor);
   }
 
+  get colorTriplets() {
+    return colorTripletSet;
+  }
+
   get brush() {
     return this.canvas.brush;
+  }
+
+  get pigments() {
+    return this.canvas.pigments;
   }
 
   get palettes() {
@@ -44,6 +55,9 @@ export class Context {
     strct.struct("canvas", "canvas", "Canvas", api.mapStruct(Canvas));
     strct.struct("canvasEditor", "canvasEditor", "Canvas Editor", api.mapStruct(CanvasEditor));
     strct.struct("brush", "brush", "Brush", api.mapStruct(Brush));
+    strct.struct("colorTriplets", "colorTriplets", "Color Triplets", api.mapStruct(ColorTripletSet));
+
+    strct.struct("pigments", "pigments", "Pigments", api.mapStruct(PigmentSet, true));
 
     strct.list("palettes", "palettes", {
       get(api, list, key) {
@@ -79,6 +93,8 @@ const LOCAL_STORAGE_KEY = "_pigment_paint";
 export class AppState extends simple.AppState {
   constructor() {
     super(Context);
+
+    this.defaultEditorClass = CanvasEditor;
 
     this.toolstack.enforceMemLimit = true;
     //this.toolstack.memLimit = 8*1024*1024;

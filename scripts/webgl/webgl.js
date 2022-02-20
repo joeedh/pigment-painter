@@ -724,8 +724,6 @@ export class ShaderProgram {
     this.attrlocs = {};
     this.uniformlocs = {};
 
-    this.uniforms = {}; //default uniforms
-
     for (let i = 0; i < attribs.length; i++) {
       this.attrlocs[attribs[i]] = gl.getAttribLocation(program, attribs[i]);
     }

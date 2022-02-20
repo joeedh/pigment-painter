@@ -2,9 +2,8 @@ import {
   simple, UIBase, Vector4, Vector3,
   Vector2, Quat, Matrix4, util, nstructjs,
   KeyMap, HotKey, eventWasTouch, PackFlags,
-  Container, saveUIData, loadUIData, pushModalLight, popModalLight, keymap
+  Container, saveUIData, loadUIData, pushModalLight, popModalLight, keymap, sendNote
 } from '../path.ux/scripts/pathux.js';
-import {getSearchOffs, DotSample} from './canvas.js';
 
 import './pigment_editor.js';
 import {Optimizer} from './optimize.js';
@@ -15,7 +14,8 @@ import {Icons} from './icon_enum.js';
 
 import './palette.js';
 import {Shaders} from '../webgl/shaders.js';
-import {WEBGL_PAINTER} from './colormodel.js';
+import {START_REFL_K1, START_REFL_K2, WEBGL_PAINTER} from './colormodel.js';
+import './widgets.js';
 
 export class PaletteEditor extends Container {
   constructor() {
@@ -130,6 +130,12 @@ export class CanvasEditor extends simple.Editor {
   constructor() {
     super();
 
+    this.genDimen = 40;
+    this.fillInLut = true;
+    this.createReverseLut = true;
+    this.upscaleGoal = 128;
+    this.lutQuality = 0.5;
+
     this.glSize = new Vector2();
     this.glPos = new Vector2();
 
@@ -161,6 +167,22 @@ export class CanvasEditor extends simple.Editor {
 
   static defineAPI(api, st) {
     st.bool("drawParam", "drawParam", "Draw Param");
+
+    st.int("genDimen", "genDimen", "Size", "Base size of LUT")
+      .noUnits()
+      .range(0, 256);
+
+    st.bool("fillInLut", "fillInLut", "Fill in empty in LUT");
+    st.bool("createReverseLut", "createReverseLut", "Inverse Too", "Also create inverse LUT");
+
+    st.int("upscaleGoal", "upscaleGoal", "Upscale", "Upscale to nearest power of 2 that is greater then or equal to this number")
+      .noUnits()
+      .range(0, 512);
+
+    st.float("lutQuality", "lutQuality", "Quality", "Quality of LUT")
+      .noUnits()
+      .range(0.01, 25.0)
+      .step(0.2);
 
     return st;
   }
@@ -271,7 +293,7 @@ export class CanvasEditor extends simple.Editor {
     this.flagRedraw();
 
     let header = this.header.col();
-
+    let panel;
 
     let strip = header.row();
     strip.useIcons(true);
@@ -547,6 +569,98 @@ export class CanvasEditor extends simple.Editor {
     }
 
     bindView();
+
+    panel = tab.panel("Create LUT");
+    panel.useIcons(false);
+
+    panel.dataPrefix = "canvasEditor";
+
+    panel.prop("genDimen");
+    panel.prop("fillInLut");
+    panel.prop("createReverseLut");
+    panel.prop("upscaleGoal");
+    panel.prop("lutQuality");
+
+    let panel2 = tab.panel("Specular");
+
+    let k1, k2;
+
+    panel2.dataPrefix = "";
+    panel2.prop("pigments.useCustomKs").update.after(() => {
+      let disabled = !this.ctx.api.getValue(this.ctx, "pigments.useCustomKs")
+
+      k1.disabled = disabled;
+      k2.disabled = disabled;
+    });
+    k1 = panel2.prop("pigments.k1");
+    k2 = panel2.prop("pigments.k2");
+
+    panel2.button("Reload K1/K2", () => {
+      panel2.setPathValueUndo(this.ctx, "pigments.k1", START_REFL_K1);
+      panel2.setPathValueUndo(this.ctx, "pigments.k2", START_REFL_K2);
+    });
+
+    let job = undefined;
+    let gen = undefined;
+
+    let createButton = panel.button("Create LUT", () => {
+      if (job !== undefined) {
+        createButton.name = "Create LUT";
+        window.clearInterval(job);
+        job = undefined;
+        gen = undefined;
+        return;
+      }
+
+      createButton.name = "Cancel";
+
+      let reporter = (msg, percent) => {
+        this.ctx.progressBar(msg, percent);
+      }
+
+      let this2 = this;
+      function* Job() {
+        let gen1 = this2.ctx.canvas.pigments.makeLUTsJob(this2.genDimen, this2.fillInLut, this2.upscaleGoal, this2.lutQuality, !this2.createReverseLut, reporter);
+
+        for (let step of gen1) {
+          yield;
+        }
+
+        this2.ctx.canvas.pigments.makeLUTImage();
+      }
+
+      gen = Job();
+      job = window.setInterval(() => {
+        let start = util.time_ms();
+
+        while (util.time_ms() - start < 30) {
+          let next = gen.next();
+
+          if (next.done) {
+            window.clearInterval(job);
+            job = undefined;
+            createButton.name = "Create LUT";
+            reporter("Done", 1.0);
+          }
+        }
+      }, 35);
+    });
+
+    tab = sidebar.tab("Triplet LUT");
+
+    let tripletEditor = UIBase.createElement("color-triplet-editor-x");
+    tripletEditor.setAttribute("datapath", "colorTriplets");
+    tripletEditor.ctx = this.ctx;
+    tripletEditor._init();
+
+    console.log("tripletEditor", tripletEditor);
+
+    tab.add(tripletEditor);
+
+    for (let i=0; i<3; i++) {
+      this.flushSetCSS();
+      this.flushUpdate();
+    }
   }
 
 
@@ -657,5 +771,11 @@ export class CanvasEditor extends simple.Editor {
     this.flagRedraw();
   }
 }
-
+CanvasEditor.STRUCT = nstructjs.inherit(CanvasEditor, simple.Editor) + `
+  genDimen         : int;
+  fillInLut        : bool;
+  createReverseLut : bool;
+  upscaleGoal      : int;
+  lutQuality       : float;
+}`;
 simple.Editor.register(CanvasEditor);

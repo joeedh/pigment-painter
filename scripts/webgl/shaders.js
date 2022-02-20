@@ -50,6 +50,15 @@ float ungamma(float c) {
   }
 }
 
+vec3 gamma(vec3 p) {
+  return vec3(gamma(p.x), gamma(p.y), gamma(p.z));
+}
+
+
+vec3 ungamma(vec3 p) {
+  return vec3(ungamma(p.x), ungamma(p.y), ungamma(p.z));
+}
+
 void main() {
   vec4 c = texture(rgba, vUv);
   
@@ -250,6 +259,8 @@ in vec4 smear;
 in float squish;
 in float angle;
 in float soft;
+in float strokeT;
+in float light;
 
 out vec4 vSmear;
 out vec2 vUv;
@@ -260,6 +271,8 @@ out float vRadius;
 out float vAngle;
 out float vSquish;
 out float vSoft;
+out float vStrokeT;
+out float vLighting;
 
 vec2 rot2d(vec2 p, float th) {
   float costh = cos(th);
@@ -280,6 +293,7 @@ void main() {
   uv2.x /= (1.0 - squish*0.99);
   uv2 += 0.5;
   
+  vLighting = light;
   vCo = co;
   vUv = uv2;
   vStrength = strength;
@@ -287,6 +301,7 @@ void main() {
   vRadius = radius;
   vSmear = smear;
   vSoft = soft + 0.001;
+  vStrokeT = strokeT;
 }
 `,
   fragment  : `#version 300 es
@@ -309,6 +324,15 @@ uniform float lutTexelSize;
 uniform float seed;
 uniform vec4 smearPickup;
 
+uniform sampler2D brushAlpha;
+uniform vec2 alphaSize;
+uniform vec2 alphaInvSize;
+uniform float alphaTileSize;
+uniform float alphaInvTileSize;
+uniform float alphaLighting;
+uniform float alphaRowSize;
+uniform float alphaInvRowSize;
+
 in vec2 vCo;
 in vec2 vUv;
 in float vStrength;
@@ -318,8 +342,51 @@ in vec4 vSmear;
 in float vAngle;
 in float vSquish;
 in float vSoft;
+in float vStrokeT;
+in float vLighting;
 
 out vec4 fragColor;
+
+vec2 rot2d(vec2 p, float th) {
+  float costh = cos(th);
+  float sinth = sin(th);
+
+  return vec2(
+    costh*p.x + sinth*p.y,
+    costh*p.y - sinth*p.x    
+  );
+}
+
+float hash1(float p)
+{
+  return fract(1.0 / (0.00001 + 0.000001*fract(p)));
+}
+
+
+float gamma(float c) {
+  if (c < 0.0031308) {
+    return (c < 0.0) ? 0.0 : c*12.92;
+  } else {
+    return 1.055*pow(c, 1.0/2.4) - 0.055;
+  }
+}
+
+float ungamma(float c) {
+  if (c < 0.04045) {
+    return (c < 0.0) ? 0.0 : c*(1.0/12.92);
+  } else {
+    return pow((c + 0.055)/1.055, 2.4);
+  }
+}
+
+vec3 gamma(vec3 p) {
+  return vec3(gamma(p.x), gamma(p.y), gamma(p.z));
+}
+
+
+vec3 ungamma(vec3 p) {
+  return vec3(ungamma(p.x), ungamma(p.y), ungamma(p.z));
+}
 
 float hash2(vec2 p, float seed2) {
   seed2 += seed;
@@ -344,7 +411,31 @@ float hash(vec2 p, float seed2)
   return fract(seed2 + (p3.x + p3.y) * p3.z) - 0.5;
 }
 
-vec3 sampleLut(vec3 p, float zoff) {
+float saturation(vec3 c) {
+  c = ungamma(c);
+   
+  float l = c[0]*0.5 + c[1]*0.35 + c[2]*0.15;
+  
+  c = abs(c - l);
+  return c[0] + c[1] + c[2];
+}
+
+//bias weight toward the less saturation of two colors
+float saturate_weight(vec3 a, vec3 a2, float w) {
+  float s1 = saturation(a.rgb);
+  float s2 = saturation(a2.rgb);
+  float s_exp = 1.0 + 0.5*(s1 - s2);
+  
+  return pow(w, s_exp);
+}
+
+#ifdef TRILINEAR_LUT
+#define DITHER_FAC 0.002
+#else
+#define DITHER_FAC 0.004;
+#endif
+
+vec3 sampleLutIntern(vec3 p, float zoff) {
   p.r = min(max(p.r, 0.0), 1.0)*(1.0 - lutTexelSize);
   p.g = min(max(p.g, 0.0), 1.0)*(1.0 - lutTexelSize);
   p.b = min(max(p.b, 0.0), 1.0)*(1.0 - lutTexelSize);
@@ -353,17 +444,24 @@ vec3 sampleLut(vec3 p, float zoff) {
   float y = p.g * lutDimen;
   float z = p.b * lutDimen;
   
-  x = floor(x + 0.00);
-  y = floor(y + 0.00);
-  z = floor(z + 0.00);
+#ifndef TRILINEAR_LUT
+  x = floor(x);
+  y = floor(y);
+#endif
+
+  z = floor(z);
 
   z += zoff;
   
+#ifdef TRILINEAR_LUT
+  z = min(max(z, 0.0), lutDimen - 1.0);
+#endif
+
   float col = mod(z, lutRowSize) * lutDimen;
   float row = floor(z/lutRowSize + 0.00) * lutDimen;
   
-  float u = (x + col) / lutSize[0];
-  float v = (y + row) / lutSize[0];
+  float u = (x + col) / (lutSize[0]-1.0);
+  float v = (y + row) / (lutSize[1]-1.0);
   
   //float ff = -lutTexelSize*0.005;
   //u += ff;
@@ -372,6 +470,19 @@ vec3 sampleLut(vec3 p, float zoff) {
   vec4 r = texture(lut, vec2(u, v));
   
   return vec3(r.r, r.b, r.g);
+}
+
+vec3 sampleLut(vec3 p, float zoff) {
+#ifdef TRILINEAR_LUT
+  vec3 a = sampleLutIntern(p, zoff);
+  vec3 b = sampleLutIntern(p, zoff + 1.0);
+  
+  float t = fract(p.z * (lutDimen - 1.0));
+  
+  return mix(a, b, t);
+#else
+  return sampleLutIntern(p, zoff);
+#endif
 }
 
 vec4 colorToPigment(vec3 rgb) {
@@ -390,9 +501,9 @@ vec3 pigmentToColor(vec4 pigment) {
   //about 1/255
   float d = 0.002;
   
-  pigment.r += hash(vCo, 0.2342)*d;
-  pigment.g += hash(vCo, 0.7342)*d;
-  pigment.b += hash(vCo, 1.5342)*d; 
+  pigment.r += hash(vCo, 0.2342)*DITHER_FAC;
+  pigment.g += hash(vCo, 0.7342)*DITHER_FAC;
+  pigment.b += hash(vCo, 1.5342)*DITHER_FAC; 
 
   vec3 r = sampleLut(pigment.rgb, lutDimen + 0.0001);
 
@@ -412,9 +523,12 @@ float det(vec2 a, vec2 b) {
   return a[0]*b[1] - a[1]*b[0];
 }
 
+#ifndef WITH_PAIR_LUT
 vec4 pigmentMix(vec4 a, vec4 b, float fac) {
+  //fac = saturate_weight(a.rgb, b.rgb, fac);
+
   vec4 r;
-  
+    
   //a.rgb = clamp2553(a.rgb);
   //b.rgb = clamp2553(b.rgb);
 
@@ -452,9 +566,9 @@ vec4 pigmentMix(vec4 a, vec4 b, float fac) {
   r.rgb += err;
   
 #if 1
-  r.r += hash(vCo, 0.2342)*0.002;
-  r.g += hash(vCo, 0.7342)*0.002;
-  r.b += hash(vCo, 1.5342)*0.002; //about 1/255
+  r.r += hash(vCo, 0.2342)*0.5*DITHER_FAC;
+  r.g += hash(vCo, 0.7342)*0.5*DITHER_FAC;
+  r.b += hash(vCo, 1.5342)*0.5*DITHER_FAC;
 #endif
 
   r.rgb = clamp(r.rgb, 0.0, 1.0);
@@ -463,6 +577,65 @@ vec4 pigmentMix(vec4 a, vec4 b, float fac) {
   
   return r;
 }
+#else
+vec4 pigmentMix(vec4 a, vec4 b, float fac) {
+  float alpha = max(a.a, b.a);
+
+  a.rgb = ungamma(a.rgb);
+  b.rgb = ungamma(b.rgb);
+
+#if 0
+  float d = 0.0045;
+  a.r += hash(vCo, 0.3342)*d;
+  a.g += hash(vCo, 0.5342)*d;
+  a.b += hash(vCo, 1.4342)*d;
+  
+  b.r += hash(vCo, 0.9342)*d;
+  b.g += hash(vCo, 0.8342)*d;
+  b.b += hash(vCo, 1.7342)*d;
+#endif
+
+  vec3 a2 = sampleLut(a.rgb*0.9999, 0.0);
+  vec3 b2 = sampleLut(b.rgb*0.9999, 0.0);
+  
+  //return vec4(sampleLut(b2, lutDimen + 0.00001), 1.0);
+  
+  vec3 da = a.rgb - sampleLut(a2, lutDimen + 0.00001);
+  vec3 db = b.rgb - sampleLut(b2, lutDimen + 0.00001);
+   
+  vec3 delta = da + (db - da) * fac;
+  vec3 c2 = a2 + (b2 - a2) * fac;
+    
+  c2 = sampleLut(c2, lutDimen + 0.00001);
+  c2 += delta;
+  
+  c2 = gamma(c2);
+  return vec4(c2, 1.0); //, alpha)
+}
+#endif
+
+#ifdef HAVE_BRUSH_ALPHA
+vec4 get_brush_mask() {
+  //float u = vUv[0] * alphaSize[0] * alphaInvTileSize;
+  //float v = vUv[1] * alphaSize[1] * alphaInvTileSize; 
+  
+  float f = hash1(vStrokeT);
+  
+  float fx = floor(hash1(vStrokeT)*alphaSize[0]*alphaInvTileSize)*alphaTileSize;
+  float fy = floor(hash1(vStrokeT+23.432)*alphaSize[1]*alphaInvTileSize)*alphaTileSize;
+  
+  fx *= alphaInvSize[0];
+  fy *= alphaInvSize[1];
+  
+  //fx *= alphaRowSize;
+  //fy *= alphaRowSize;
+  
+  fx += vUv.x*alphaInvRowSize;
+  fy += vUv.y*alphaInvRowSize;
+  
+  return texture(brushAlpha, vec2(fx, fy));
+}
+#endif
 
 void main() {
   float f = pass * 0.2;
@@ -497,7 +670,29 @@ void main() {
   float fac = vStrength*w;
 
 #if TOOL == 0 || TOOL == 2
+#ifdef HAVE_BRUSH_ALPHA
+  {
+    vec4 mask = get_brush_mask();
+  
+    c = pigmentMix(a, color, fac*mask[3]);
+    
+    if (mask[3] > 0.001) {
+      vec3 n = mask.rgb*2.0 - 1.0;
+      n.xy = rot2d(n.xy, -vAngle);
+      
+      float light = dot(n, vec3(1.0, 1.0, 0.2));
+      light = pow(abs(light), 4.0)*vLighting*0.2;
+      
+      vec4 lc = vec4(light, light, light, 1.0);  
+      //lc.rgb *= c.rgb;
+      
+      c.rgb += lc.rgb;
+      //c = pigmentMix(c, lc, fac);
+    }
+  }
+#else
   c = pigmentMix(a, color, fac);
+#endif
 #elif TOOL == 1
   vec2 dv = vDv*4.0;
   
@@ -519,13 +714,33 @@ void main() {
 
   c = pigmentMix(a, a2, fac);
   
+#ifdef HAVE_BRUSH_ALPHA
+  {
+    vec4 mask = get_brush_mask();
+  
+    if (mask[3] > 0.001) {
+      vec3 n = mask.rgb*2.0 - 1.0;
+      n.xy = rot2d(n.xy, -vAngle);
+      
+      float light = dot(n, vec3(1.0, 1.0, 0.2));
+      light = (abs(light), 4.0)*vLighting*0.02;
+      
+      vec4 lc = vec4(light, light, light, 1.0);  
+      //lc.rgb *= c.rgb;
+      
+      c.rgb += lc.rgb;
+    } else {
+      c = a;
+    }
+  }
+#endif
 #endif
 
   fragColor = c;
 }
 `,
   uniforms  : {},
-  attributes: ["co", "uv", "strength", "dv", "radius", "smear", "squish", "angle", "soft"]
+  attributes: ["co", "uv", "strength", "dv", "radius", "smear", "squish", "angle", "soft", "strokeT", "light"]
 }
 
 

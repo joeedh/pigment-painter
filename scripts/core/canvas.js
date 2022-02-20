@@ -59,7 +59,7 @@ export function getSearchOffs(n, falloffKey, falloffCB) {
 export class DotSample {
   constructor(x, y, dx, dy, t, pressure, radius,
               spacing, strength, angle_degrees, squish,
-              soft) {
+              soft, alphaLighting) {
     this.x = x;
     this.y = y;
     this.dx = dx;
@@ -72,6 +72,7 @@ export class DotSample {
     this.angle = angle_degrees/180.0*Math.PI;
     this.squish = squish;
     this.soft = soft;
+    this.alphaLighting = alphaLighting;
   }
 
   copyTo(b) {
@@ -87,6 +88,7 @@ export class DotSample {
     b.angle = this.angle;
     b.squish = this.squish;
     b.soft = this.soft;
+    b.alphaLighting = this.alphaLighting;
   }
 
   copy() {
@@ -110,6 +112,7 @@ DotSample {
   angle       : float;
   squish      : float;
   soft        : float;
+  alphaLighting : float;
 }
 `;
 nstructjs.register(DotSample);

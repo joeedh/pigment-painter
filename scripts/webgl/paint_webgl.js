@@ -1,5 +1,5 @@
 import {ShaderProgram, Texture, FBO, RenderBuffer} from './webgl.js';
-import {BrushTools, Canvas} from '../core/canvas.js';
+import {BrushAlpha, BrushTools, Canvas} from '../core/canvas.js';
 import {
   util, math, nstructjs, Vector2, Vector3,
   Vector4, Matrix4, Quat, UIBase
@@ -8,6 +8,7 @@ import {
 import {ImageSlots} from '../core/canvas.js';
 import {GPUMesh} from './gpumesh.js';
 import {Shaders} from './shaders.js';
+import {TRILINEAR_LUT} from '../core/colormodel.js';
 
 export const FBOSlots = {
   MAIN1: 0,
@@ -177,7 +178,7 @@ export class WebGLPaint extends Canvas {
 
   drawIntern(queue) {
     this.animreq = undefined;
-    console.log("QUEUE", this.queue.length, this.queue);
+    //console.log("QUEUE", this.queue.length, this.queue);
 
     //ensure shader can compile for attrloc in gpumesh
     Shaders.PaintShader.defines.TOOL = 0;
@@ -190,6 +191,8 @@ export class WebGLPaint extends Canvas {
 
     let gl = this.gl;
     let brush = this.brush;
+
+    let alpha = BrushAlpha.getAlphaFromId(brush.mask);
 
     let width = this.width, height = this.height;
 
@@ -244,11 +247,12 @@ export class WebGLPaint extends Canvas {
     let uvs = [];
 
     let overlap = Math.max(Math.ceil(1.0/brush.spacing), 1) + 1;
+
     //overlap = this.queue.length;
 
     let meshlayers = [
       "uvs", "cos", "ss", "dvs", "rs", "smear",
-      "angle", "squish", "soft"
+      "angle", "squish", "soft", "strokeT", "light"
     ];
 
     let meshes = [];
@@ -304,6 +308,8 @@ export class WebGLPaint extends Canvas {
       meshes[i].squish = meshes[i].squish.concat(six(ds.squish));
       meshes[i].angle = meshes[i].angle.concat(six(ds.angle));
       meshes[i].soft = meshes[i].soft.concat(six(ds.soft));
+      meshes[i].strokeT = meshes[i].strokeT.concat(six(ds.t));
+      meshes[i].light = meshes[i].light.concat(six(ds.alphaLighting));
 
       meshes[i].tottri += 2;
 
@@ -313,12 +319,19 @@ export class WebGLPaint extends Canvas {
 
     this.queue.length = 0;
 
-    gl.bindTexture(gl.TEXTURE_2D, this.lutTex.texture);
+    if (this.lutTex) {
+      gl.bindTexture(gl.TEXTURE_2D, this.lutTex.texture);
 
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      if (TRILINEAR_LUT) {
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      } else {
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+      }
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    }
 
     let lutRowSize = this.lutWidth/this.lutDimen;
 
@@ -355,15 +368,37 @@ export class WebGLPaint extends Canvas {
       m.mesh.addLayer(1, "angle", m.angle);
       m.mesh.addLayer(1, "squish", m.squish);
       m.mesh.addLayer(1, "soft", m.soft);
+      m.mesh.addLayer(1, "strokeT", m.strokeT);
+      m.mesh.addLayer(1, "light", m.light);
     }
 
     let fbo;
 
     let defines = {};
 
+    if (TRILINEAR_LUT) {
+      defines.TRILINEAR_LUT = null;
+    }
+
     defines.TOOL = this.brush.tool;
     if (brush.smear > 0.0) {
       defines.SMEAR_PICKUP = null;
+    }
+
+    if (this.pigments.lut.isPairLut) {
+      defines.WITH_PAIR_LUT = null;
+    }
+
+    if (alpha) {
+      uniforms.brushAlpha = alpha.getGLTex(gl);
+      defines.HAVE_BRUSH_ALPHA = true;
+      uniforms.alphaLighting = brush.alphaLighting;
+      uniforms.alphaSize = [alpha.image.width, alpha.image.height];
+      uniforms.alphaInvSize = [1.0/alpha.image.width, 1.0/alpha.image.height];
+      uniforms.alphaTileSize = alpha.tilesize;
+      uniforms.alphaInvTileSize = 1.0/alpha.tilesize;
+      uniforms.alphaRowSize = Math.floor(alpha.image.width / alpha.tilesize);
+      uniforms.alphaInvRowSize = 1.0 / uniforms.alphaRowSize;
     }
 
     i = 0;
