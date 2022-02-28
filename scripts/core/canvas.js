@@ -58,6 +58,7 @@ export function getSearchOffs(n, falloffKey, falloffCB) {
 
 let huerets = util.cachering.fromConstructor(Vector4, 64);
 
+
 export class DotSample {
   constructor(x, y, dx, dy, t, pressure, radius=0.0,
               spacing=0.0, strength=0.0, angle_degrees=0.0, squish=0.0,
@@ -151,6 +152,7 @@ import {
   BrushMixModes, BrushTools, DynamicFlags, InputDynamic,
   BrushDynamics, BrushAlpha
 } from './brush.js';
+import {presetManager, PresetRef} from './presets.js';
 
 let white = new Vector4([1, 1, 1, 1]);
 
@@ -235,7 +237,7 @@ export class Canvas {
     v.pigments = this.pigments;
     v.pigment = this.pigments[0];
 
-    this.slots[this.activeBrush] = v;
+    this.slots[this.activeBrush] = PresetRef.create(v);
   }
 
   get lutIsLinear() {
@@ -298,17 +300,52 @@ export class Canvas {
   }
 
   getBrush(slot = this.activeBrush) {
-    while (this.slots.length <= slot) {
-      let b = new Brush();
+    if (this.slots.length <= slot) {
+      this.slots.length = slot + 1;
 
-      b.pigments = this.pigments;
-      b.pigment = this.pigments[0];
-
-      b.tool = this.slots.length;
-      this.slots.push(b);
+      for (let i=0; i<this.slots.length; i++) {
+        if (this.slots[i] === undefined) {
+          this.slots[i] = new PresetRef("brush");
+        }
+      }
     }
 
-    return this.slots[slot];
+    let ref = this.slots[slot];
+    let brush = ref.getPreset();
+
+    if (!brush) {
+      console.error("Slot " + slot + " has no brush; searching for an existing one");
+
+      for (let brush2 of presetManager.getList("brush")) {
+        if (brush2.tool === slot) {
+          brush = brush2;
+          ref.set(brush2);
+          break;
+        }
+      }
+    }
+
+    if (!brush) {
+      console.error("Creating new brush for slot " + slot);
+
+      brush = new Brush();
+      brush.tool = slot;
+
+      for (let k in BrushTools) {
+        if (BrushTools[k] === slot) {
+          brush.name = ToolProperty.makeUIName(k);
+          break;
+        }
+      }
+
+      presetManager.add(brush);
+      ref.set(brush);
+    }
+
+    brush.pigments = this.pigments;
+    brush.pigment = this.pigments[0];
+
+    return brush;
   }
 
   genImage() {
@@ -928,13 +965,13 @@ export class Canvas {
   loadSTRUCT(reader) {
     reader(this);
 
+    if (this.slots[0] instanceof Brush) {
+      this._oldslots = this.slots;
+      this.slots = [];
+    }
+
     this.reset(this.dimen);
     this.genImage();
-
-    for (let b of this.slots) {
-      b.pigments = this.pigments;
-      b.pigment = b.pigments[0];
-    }
 
     if (USE_LUT_IMAGE) {
       this.loadLutImage();
@@ -971,7 +1008,7 @@ Canvas.STRUCT = `
 Canvas {
   dimen       : int; 
   pigments    : PigmentSet;
-  slots       : array(Brush);
+  slots       : array(PresetRef);
   activeBrush : int; 
 }
 `;

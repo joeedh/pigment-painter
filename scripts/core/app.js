@@ -12,7 +12,7 @@ import {Palette, palettes} from './palette.js';
 import {theme} from './theme.js';
 
 import {PlatformAPI} from '../path.ux/scripts/platforms/platform_base.js';
-import {Canvas, Brush, getSearchOffs} from './canvas.js';
+import {Canvas, Brush, getSearchOffs, BrushTools} from './canvas.js';
 import {CanvasEditor} from './canvas_editor.js';
 import {Icons} from './icon_enum.js';
 import {init_webgl} from '../webgl/webgl.js';
@@ -22,6 +22,7 @@ import {PigmentSet, WEBGL_PAINTER} from './colormodel.js';
 
 import {ColorTripletSet, colorTripletSet} from './pairlut.js';
 import {BrushCommandStack} from '../webgl/brush_webgl.js';
+import {presetManager, startPresets} from './presets.js';
 
 export class Context {
   get canvas() {
@@ -103,6 +104,8 @@ const LOCAL_STORAGE_KEY = "_pigment_paint";
 export class AppState extends simple.AppState {
   constructor() {
     super(Context);
+
+    this.fileVersion = [0, 0, 2];
 
     this.defaultEditorClass = CanvasEditor;
 
@@ -257,6 +260,10 @@ export class AppState extends simple.AppState {
         super.loadFile(data, args).then(file => {
           this.canvas = file.objects[0];
 
+          console.error("FILE", file);
+
+          this.doVersions(file);
+
           if (!!WEBGL_PAINTER !== !!(this.canvas instanceof WebGLPaint)) {
             let brushes = this.canvas.brushes;
 
@@ -276,6 +283,35 @@ export class AppState extends simple.AppState {
     //this.canvas.reexec();
   }
 
+  doVersions(file) {
+    function lessThan(a, b, c) {
+      let va = file.version_major*500*500 + file.version_minor*500 + file.version_micro;
+      let vb = a*500*500 + b*500 + c;
+
+      return va < vb;
+    }
+
+    console.error("THAN", lessThan(0,0,2));
+
+    if (lessThan(0, 0, 2)) {
+      console.error("Adding old brushes to preset manager");
+
+      let canvas = file.objects[0];
+      for (let brush of canvas._oldslots) {
+        let name = "(unnamed brush)";
+
+        for (let k in BrushTools) {
+          if (BrushTools[k] === brush.tool) {
+            name = ToolProperty.makeUIName(k);
+          }
+        }
+
+        brush.name = name;
+        presetManager.add(brush);
+      }
+    }
+  }
+
   start() {
     let iconsheet = document.createElement("img");
     iconsheet.src = PlatformAPI.resolveURL("/assets/iconsheet.svg");
@@ -285,6 +321,8 @@ export class AppState extends simple.AppState {
       icons: Icons,
       theme
     });
+
+    startPresets();
 
     if (LOCAL_STORAGE_KEY in localStorage) {
       let data = localStorage[LOCAL_STORAGE_KEY];
@@ -346,6 +384,8 @@ export function start() {
 
   window.setInterval(() => {
     _appstate.save();
+    presetManager.checkForNewVersions();
+    presetManager.saveChangedPresets();
   }, 2750);
 }
 

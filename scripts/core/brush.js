@@ -1,7 +1,7 @@
 import {
   Curve1D, EnumProperty, FloatProperty, nstructjs,
   simple, util, Vec3Property, Vec4Property, Vector3,
-  Vector4, ToolProperty
+  Vector4, ToolProperty, IntProperty, FlagProperty, Vec2Property, StringProperty, ListProperty, CurveConstructors
 } from '../path.ux/scripts/pathux.js';
 import {Pigment} from './colormodel.js';
 import {Icons} from './icon_enum.js';
@@ -9,6 +9,7 @@ import {makeSharedImageData} from '../../wasm/wasm_api.js';
 import {ImageSlots} from './canvas_base.js';
 import {wasmModule, wasmReady} from '../../wasm/wasm_api.js';
 import {Texture} from '../webgl/webgl.js';
+import {Preset} from './presets.js';
 
 let brush_hash = new util.HashDigest();
 
@@ -199,17 +200,17 @@ export const PeriodicFuncs = {
 };
 
 let period_funcs = [
-  function(n) {
+  function (n) {
     return Math.tent(n);
   },
-  function(n) {
+  function (n) {
     n = Math.tent(n);
     return n*n*(3.0 - 2.0*n);
   },
-  function(n) {
+  function (n) {
     return Math.fract(n);
   },
-  function(n) {
+  function (n) {
     return Math.fract(n) > 0.5;
   }
 ];
@@ -276,6 +277,23 @@ export class InputDynamic {
     st.float("factor", "factor", "Factor")
       .range(0.0, 1.0)
       .noUnits();
+  }
+
+  hash(digest = new util.HashDigest()) {
+    digest.add(this.flag);
+    digest.add(this.inputMin);
+    digest.add(this.inputMax);
+    digest.add(this.outputMin);
+    digest.add(this.outputMax);
+    digest.add(this.flag & ~DynamicFlags.NOT_MY_CURVE);
+
+    this.curve.calcHashKey(digest);
+
+    digest.add(this.periodFunc);
+    digest.add(this.scale);
+    digest.add(this.factor);
+
+    return digest.get();
   }
 
   evaluate(f) {
@@ -357,6 +375,14 @@ export class BrushDynamics {
   static defineAPI(api, st) {
 
     return st;
+  }
+
+  hash(digest = new util.HashDigest()) {
+    for (let map of this.mappings.values()) {
+      map.hash(digest);
+    }
+
+    return digest.get();
   }
 
   [Symbol.iterator]() {
@@ -461,7 +487,7 @@ export class BrushChannel {
     st.string("name", "name", "Name").readOnly();
     st.string("uiName", "uiName", "Display Name").readOnly();
     st.float("value", "value", "Value").noUnits().decimalPlaces(3)
-      .customPropCallback(function(prop) {
+      .customPropCallback(function (prop) {
         let ch = this.dataref;
 
         //console.log(ch.name, ch.prop.decimalPlaces, ch.prop.unit);
@@ -481,7 +507,7 @@ export class BrushChannel {
 
         return prop;
       })
-      .uiNameGetter(function() {
+      .uiNameGetter(function () {
         return this.dataref.uiName || this.dataref.name;
       });
 
@@ -503,6 +529,16 @@ export class BrushChannel {
       }
     });
     //st.struct("dynamics", "dynamics", "Dynamics", api.mapStruct(BrushDynamics, true));
+  }
+
+  hash(digest = new util.HashDigest()) {
+    digest.add(this.value);
+
+    for (let dyn of this.dynamics) {
+      dyn.hash(digest);
+    }
+
+    return digest.get();
   }
 
   copyTo(b) {
@@ -883,8 +919,10 @@ export const StrokeModes = {
   SMOOTH    : 2
 };
 
-export class Brush {
+export class Brush extends Preset {
   constructor() {
+    super();
+
     this.channels = new BrushChannelSet();
     this.channels.fromTemplate(BrushChannelSet.defaultTemplate());
 
@@ -907,6 +945,15 @@ export class Brush {
 
   get continuous() {
     return this.strokeMode === StrokeModes.SMOOTH_DAB || this.strokeMode === StrokeModes.SMOOTH;
+  }
+
+  static presetDefine() {
+    return {
+      typeName: "brush",
+      uiName  : "Brush",
+      flag    : 0,
+      icon    : Icons.BRUSH_DRAW
+    }
   }
 
   static defineAPI(api, st) {
@@ -973,6 +1020,23 @@ export class Brush {
     })
   }
 
+  addExtraStructs(istruct) {
+    for (let cls of CurveConstructors) {
+      istruct.registerGraph(nstructjs.manager, cls);
+    }
+    istruct.registerGraph(nstructjs.manager, Curve1D);
+
+    istruct.register(FloatProperty)
+    istruct.register(IntProperty);
+    istruct.register(EnumProperty);
+    istruct.register(FlagProperty);
+    istruct.registerGraph(nstructjs.manager, Vec2Property);
+    istruct.registerGraph(nstructjs.manager, Vec3Property);
+    istruct.registerGraph(nstructjs.manager, Vec4Property);
+    istruct.register(StringProperty);
+    istruct.register(ListProperty);
+  }
+
   asApplied(inputs) {
     let ret = this.copy();
 
@@ -982,6 +1046,8 @@ export class Brush {
   }
 
   copyTo(b) {
+    super.copyTo(b);
+
     b.channels = this.channels.copy();
 
     b.color.load(this.color);
@@ -1021,29 +1087,22 @@ export class Brush {
   }
 
   hash(digest = brush_hash.reset()) {
-    digest.add(this.color);
-    digest.add(this.strength);
-    digest.add(this.radius);
-    digest.add(this.spacing);
-    digest.add(this.mixMode);
-    digest.add(this.scatter);
-    digest.add(this.smear);
-    digest.add(this.smearLen);
-    digest.add(this.smearRate);
-    digest.add(this.strokeMode);
+    for (let ch of this.channels) {
+      ch.hash(digest);
+    }
 
     return digest.get();
   }
 
   loadSTRUCT(reader) {
+    super.loadSTRUCT(reader);
     reader(this);
 
     this.channels.ensureTemplate(BrushChannelSet.defaultTemplate());
   }
 }
 
-Brush.STRUCT = `
-Brush {
+Brush.STRUCT = nstructjs.inherit(Brush, Preset, "Brush") + `
   radius     : float;
   strength   : float;
   color      : vec4;
@@ -1060,6 +1119,7 @@ Brush {
   strokeMode : int;
 }
 `;
+Preset.register(Brush);
 simple.DataModel.register(Brush);
 
 /* add brush channels as getters/settings to Brush */
