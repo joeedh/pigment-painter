@@ -1,9 +1,11 @@
 import {
   nstructjs, util, Vector2, Vector3,
   Vector4, Matrix4, Quat, math, UIBase,
-  Container, saveUIData, loadUIData, ToolOp, IntProperty
+  Container, saveUIData, loadUIData, ToolOp, IntProperty, Vec4Property
 } from '../path.ux/scripts/pathux.js';
 import {Icons} from './icon_enum.js';
+
+import '../webgl/brush_webgl_ops.js';
 
 export class TripletOp extends ToolOp {
   constructor() {
@@ -39,6 +41,7 @@ export class AddTripletOp extends TripletOp {
     ctx.colorTriplets.makeTriplet();
   }
 }
+
 ToolOp.register(AddTripletOp);
 
 export class ResetMiddleOp extends TripletOp {
@@ -48,7 +51,7 @@ export class ResetMiddleOp extends TripletOp {
       uiname  : "Refresh",
       icon    : Icons.REFRESH,
       inputs  : {
-        id : new IntProperty()
+        id: new IntProperty()
       },
       outputs : {}
     }
@@ -62,6 +65,7 @@ export class ResetMiddleOp extends TripletOp {
     cset.onChanged();
   }
 }
+
 ToolOp.register(ResetMiddleOp);
 
 export class RemoveTripletOp extends TripletOp {
@@ -71,7 +75,7 @@ export class RemoveTripletOp extends TripletOp {
       uiname  : "Refresh",
       icon    : Icons.SMALL_MINUS,
       inputs  : {
-        id : new IntProperty()
+        id: new IntProperty()
       },
       outputs : {}
     }
@@ -84,6 +88,7 @@ export class RemoveTripletOp extends TripletOp {
     cset.remove(triplet);
   }
 }
+
 ToolOp.register(RemoveTripletOp);
 
 export class TripletEditor extends Container {
@@ -189,3 +194,95 @@ export class TripletEditor extends Container {
 }
 
 UIBase.register(TripletEditor);
+
+export class BrushStackEditor extends Container {
+  constructor() {
+    super();
+
+    this._last_update_gen = undefined;
+    this.needsRebuild = true;
+  }
+
+  static define() {
+    return {
+      tagname : "brush-stack-editor-x"
+    }
+  }
+
+  rebuild() {
+    console.warn("Rebuild!");
+
+    this.needsRebuild = false;
+
+    let uidata = saveUIData(this, "brushstack");
+
+    let path = this.getAttribute("datapath");
+
+    this.clear();
+    let row = this.row();
+
+    let cset = this.getBrushStack();
+    row.tool(`brush.add_command(datapath="${path}")`);
+
+    let docmd = (cmd, i) => {
+      let path2 = `${path}.commands[${i}]`;
+
+      let panel = this.panel(cmd.name);
+
+      panel.prop(`${path2}.overrides['strength'].value`);
+
+      console.log(cmd);
+
+      let panel2 = panel.panel("Settings");
+      for (let ch of cmd.overrides.values()) {
+        let suffix = "value";
+
+        if (ch.name === "strength") {
+          continue;
+        }
+
+        if (ch.prop instanceof Vec4Property) {
+          suffix = "color";
+        }
+
+        panel2.prop(`${path2}.overrides['${ch.name}'].${suffix}`);
+      }
+
+      panel2.closed = true;
+
+    }
+
+    let i = 0;
+    for (let cmd of cset.commands) {
+      docmd(cmd, i);
+      i++;
+    }
+
+    loadUIData(this, uidata);
+
+    for (let i=0; i<2; i++) {
+      this.flushSetCSS();
+      this.flushUpdate();
+    }
+  }
+  getBrushStack() {
+    return this.ctx.api.getValue(this.ctx, this.getAttribute("datapath"));
+  }
+
+  update() {
+    if (!this.ctx) {
+      return;
+    }
+
+    let cset = this.getBrushStack();
+    if (cset.updateGen !== this._last_update_gen) {
+      this._last_update_gen = cset.updateGen;
+      this.needsRebuild = true;
+    }
+
+    if (this.needsRebuild) {
+      this.rebuild();
+    }
+  }
+}
+UIBase.register(BrushStackEditor);

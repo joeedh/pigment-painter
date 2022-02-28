@@ -9,6 +9,7 @@ import {ImageSlots} from '../core/canvas.js';
 import {GPUMesh} from './gpumesh.js';
 import {Shaders} from './shaders.js';
 import {TRILINEAR_LUT} from '../core/colormodel.js';
+import {cubic2, dcubic2} from '../core/bezier.js';
 
 export const FBOSlots = {
   MAIN1: 0,
@@ -17,8 +18,129 @@ export const FBOSlots = {
   ACCUM: 3
 };
 
+
 let block_idgen = 0;
 let FreedSymbol = Symbol("fbo-freed");
+
+let _temps = new Array(1024);
+
+export function getTempArray(n) {
+  //return new Array(n);
+
+  if (_temps[n]) {
+    return _temps[n].next();
+  }
+
+  _temps[n] = new util.cachering(() => new Array(n), 64);
+  return _temps[n].next();
+}
+
+class MeshArray extends Array {
+  constructor(elemSize, key) {
+    super();
+
+    this.key = key;
+    this.elemSize = elemSize
+    this.vertex_i = 0;
+  }
+}
+
+class MeshData {
+  constructor() {
+    this.arrays = new Map();
+
+    /*
+          m.mesh.setLayer(2, "co", m.cos);
+      m.mesh.setLayer(2, "uv", m.uvs);
+      m.mesh.setLayer(1, "strength", m.ss);
+      m.mesh.setLayer(2, "dv", m.dvs);
+      m.mesh.setLayer(1, "radius", m.rs);
+      m.mesh.setLayer(4, "smear", m.smear);
+      m.mesh.setLayer(1, "angle", m.angle);
+      m.mesh.setLayer(1, "squish", m.squish);
+      m.mesh.setLayer(1, "soft", m.soft);
+      m.mesh.setLayer(1, "strokeT", m.strokeT);
+      m.mesh.setLayer(1, "light", m.light);
+
+     */
+    this.cos = this.getArray("co", 2);
+    this.uvs = this.getArray("uv", 2);
+    this.ss = this.getArray("strength", 1);
+    this.dvs = this.getArray("dv", 2);
+    this.rs = this.getArray("radius", 1);
+    this.smear = this.getArray("smear", 4);
+    this.angle = this.getArray("angle", 1);
+    this.squish = this.getArray("squish", 1);
+    this.soft = this.getArray("soft", 1);
+    this.strokeT = this.getArray("strokeT", 1);
+    this.light = this.getArray("light", 1);
+    this.color = this.getArray("color", 4);
+
+    this.tottri = 0;
+    this.vertex_i = 0; //current vertex
+
+    this.mesh = undefined;
+  }
+
+  setLayers(mesh) {
+    this.mesh = mesh;
+
+    for (let array of this.arrays.values()) {
+      mesh.setLayer(array.elemSize, array.key, array);
+    }
+
+    return this;
+  }
+
+  getArray(name, elemSize) {
+    let ret = this.arrays.get(name);
+
+    if (!ret) {
+      ret = new MeshArray(elemSize, name);
+      this.arrays.set(name, ret);
+    }
+
+    return ret;
+  }
+
+  finish() {
+    for (let array of this.arrays.values()) {
+      array.length = this.vertex_i*array.elemSize;
+    }
+
+    return this;
+  }
+
+  reset() {
+    this.tottri = this.vertex_i = 0;
+
+    for (let array of this.arrays.values()) {
+      array.vertex_i = 0;
+    }
+  }
+
+  join(array, b, totelem = 1) {
+    let elemsize = array.elemSize;
+    let tot = totelem*elemsize;
+
+    let i = array.vertex_i*elemsize;
+
+    if (array.length <= i + tot) {
+      let newlen = i + tot;
+      newlen += newlen>>1;
+
+      array.length = newlen;
+    }
+
+    for (let j = 0; j < tot; j++) {
+      array[i++] = b[j];
+    }
+
+    array.vertex_i += totelem;
+
+    return this;
+  }
+}
 
 export class FboUndoCache {
   constructor() {
@@ -71,6 +193,11 @@ export class WebGLPaint extends Canvas {
 
     super(dimen);
 
+    this.meshCache = [];
+    this.gpuMeshCache = new Array(8192);
+
+    this.lastds = undefined;
+
     this.strokeFirst = false;
     this.smearColor = new Vector4();
 
@@ -88,6 +215,7 @@ export class WebGLPaint extends Canvas {
     this.lutDimen = undefined;
     this.lutWidth = undefined;
     this.lutHeight = undefined;
+
 
     this.drawmesh = undefined;
     this.drawIntern = this.drawIntern.bind(this);
@@ -191,6 +319,7 @@ export class WebGLPaint extends Canvas {
 
     let gl = this.gl;
     let brush = this.brush;
+    let continuous = brush.continuous;
 
     let alpha = BrushAlpha.getAlphaFromId(brush.mask);
 
@@ -199,8 +328,8 @@ export class WebGLPaint extends Canvas {
     if (brush.tool === BrushTools.SMEAR) {
       this.fbos[0].bind(gl);
 
-      let x = this.queue[0].x;
-      let y = this.queue[0].y;
+      let x = ~~this.queue[0].x;
+      let y = this.fbos[0].size[1] - (~~this.queue[0].y);
 
       let data = new Float32Array(4*4);
       gl.readPixels(x, y, 2, 2, gl.RGBA, gl.FLOAT, data);
@@ -225,6 +354,8 @@ export class WebGLPaint extends Canvas {
     this.strokeFirst = false;
 
     function rect(x, y, w, h, scale = true) {
+      let box = getTempArray(12);
+
       if (scale) {
         w /= width;
         h /= height;
@@ -234,45 +365,80 @@ export class WebGLPaint extends Canvas {
         y = 1.0 - y - h;
       }
 
-      return [
-        x, y, x, y + h, x + w, y + h,
-        x, y, x + w, y + h, x + w, y
-      ];
+      //box[0] = x, box[1] = y, box[2] = x, box[3] = y + h, box[4] = x + w, box[5] = y + h;
+      //box[6] = x, box[7] = y, box[8] = x + w, box[9] = y + h, box[10] = x + w, box[11] = y;
+
+      let a = 0;
+      let b = box;
+
+      b[a++] = x, b[a++] = y, b[a++] = x, b[a++] = y + h, b[a++] = x + w, b[a++] = y + h;
+      b[a++] = x, b[a++] = y, b[a++] = x + w, b[a++] = y + h, b[a++] = x + w, b[a++] = y;
+
+      return b;
+      //return [
+      //x, y, x, y + h, x + w, y + h,
+      //x, y, x + w, y + h, x + w, y
+      //];
     }
 
-    let r = Math.ceil(brush.radius*UIBase.getDPI());
-    let tottri = 0;
+    function join(a, b) {
+      for (let item of b) {
+        a.push(item);
+      }
+    }
 
-    let cos = [];
-    let uvs = [];
+    let tottri = 0;
 
     let overlap = Math.max(Math.ceil(1.0/brush.spacing), 1) + 1;
 
+    if (continuous) {
+      overlap = 1;
+    }
+
     //overlap = this.queue.length;
 
-    let meshlayers = [
-      "uvs", "cos", "ss", "dvs", "rs", "smear",
-      "angle", "squish", "soft", "strokeT", "light"
-    ];
+    let cubicvec = [new Vector2(), new Vector2(), new Vector2(), new Vector2()];
+
 
     let meshes = [];
     for (let i = 0; i < overlap; i++) {
-      let m = {tottri: 0};
+      let m;
 
-      for (let key of meshlayers) {
-        m[key] = [];
+      if (this.meshCache.length > i) {
+        m = this.meshCache[i];
+        m.reset();
+      } else {
+        m = new MeshData();
+        this.meshCache.push(m);
       }
 
       meshes.push(m);
     }
 
     function six(f) {
-      return [f, f, f, f, f, f];
+      let ret = getTempArray(6);
+
+      for (let i = 0; i < 6; i++) {
+        ret[i] = f;
+      }
+
+      return ret;
     }
 
     let i = 0;
+    let lastds = this.lastds;
+    let color3 = new Vector4();
+    let color4 = new Vector4();
+
     for (let ds of this.queue) {
       let x = ds.x, y = ds.y;
+
+      if (!lastds) {
+        lastds = ds;
+      }
+
+      let color1 = lastds.getColor(brush.color);
+      let color2 = ds.getColor(brush.color);
 
       let s = ds.strength;
       let r = ds.radius;
@@ -284,38 +450,196 @@ export class WebGLPaint extends Canvas {
       }
 
       let {dx, dy} = ds;
-      dy = -dy;
+      //dy = -dy;
 
       let {smear, smearLen, smearRate, scatter} = brush;
 
-      let smearParams = [];
+      let smearParams = getTempArray(24);
+
       for (let i = 0; i < 6; i++) {
-        smearParams.push(scatter/this.width);
-        smearParams.push(smear);
-        smearParams.push(smearLen/this.width);
-        smearParams.push(smearRate);
+        smearParams[i*4] = scatter/this.width;
+        smearParams[i*4 + 1] = smear;
+        smearParams[i*4 + 2] = smearLen/this.width;
+        smearParams[i*4 + 3] = smearRate;
       }
 
-      let dvs = [dx, dy, dx, dy, dx, dy];
-      dvs = dvs.concat(dvs);
+      let dvs = getTempArray(12);
+      dvs[0] = dx, dvs[1] = -dy, dvs[2] = dx, dvs[3] = -dy, dvs[4] = dx, dvs[5] = -dy;
+      dvs[6] = dx, dvs[7] = -dy, dvs[8] = dx, dvs[9] = -dy, dvs[10] = dx, dvs[11] = -dy;
 
-      meshes[i].cos = meshes[i].cos.concat(rect(x - r, y - r, r*2, r*2, true));
-      meshes[i].uvs = meshes[i].uvs.concat(rect(0, 0, 1, 1, false));
-      meshes[i].ss = meshes[i].ss.concat(six(s));
-      meshes[i].rs = meshes[i].rs.concat(six(rad));
-      meshes[i].dvs = meshes[i].dvs.concat(dvs);
-      meshes[i].smear = meshes[i].smear.concat(smearParams);
-      meshes[i].squish = meshes[i].squish.concat(six(ds.squish));
-      meshes[i].angle = meshes[i].angle.concat(six(ds.angle));
-      meshes[i].soft = meshes[i].soft.concat(six(ds.soft));
-      meshes[i].strokeT = meshes[i].strokeT.concat(six(ds.t));
-      meshes[i].light = meshes[i].light.concat(six(ds.alphaLighting));
+      //let dvs = [dx, -dy, dx, -dy, dx, -dy];
+      //dvs = dvs.concat(dvs);
+      let box;
 
-      meshes[i].tottri += 2;
+      if (continuous) {
+        let lx = lastds.x, ly = lastds.y;
+        let dx1, dy1, dx2, dy2;
+
+        let [k1, k2, k3, k4] = cubicvec;
+
+        let r1 = lastds.radius;
+        let r2 = ds.radius;
+
+        dx1 = lastds.dx;
+        dy1 = lastds.dy;
+        dx2 = ds.dx;
+        dy2 = ds.dy;
+
+        let sfac = 1.0;
+        //sfac = (ds.t - lastds.t)*10.0;
+
+        k1.loadXY(lx, ly);
+        k4.loadXY(x, y);
+        k2.loadXY(dx1, dy1).mulScalar(sfac*lastds.deltaS/3.0).add(k1);
+        k3.loadXY(dx2, dy2).mulScalar(-sfac*ds.deltaS/3.0).add(k4);
+
+        //k2.load(k1).interp(k4, 1.0/3.0);
+        //k3.load(k1).interp(k4, 2.0/3.0);
+
+        let lastp, lastdv;
+
+        //lastp = [lx, ly];
+        // /lastdv = [dx1, dy1];
+
+        let steps = 28;
+        let dt = 1.0/(steps-1), t = 0.0;
+
+        let angle1 = lastds.angle, angle2 = ds.angle;
+
+        for (let stepi = 0; stepi < steps; stepi++, t += dt) {
+          let p = cubic2(k1, k2, k3, k4, t);
+          let dv = dcubic2(k1, k2, k3, k4, t);
+
+          //p.load(k1).interp(k4, t);
+          //dv.load(k4).sub(k1);
+
+          let angle = angle1 + (angle2 - angle1)*t;
+          angle -= Math.PI*0.5;
+
+          let tt = t*t*(3.0-2.0*t);
+
+          let r3 = r1 + (r2 - r1) * tt;
+
+          color3.load(color1).interp(color2, t - dt);
+          color4.load(color1).interp(color2, t);
+
+          //angle -= Math.PI*0.5;
+
+          //dv[0] = dx1 + (dx2 - dx1) * t;
+          //dv[1] = dy1 + (dy2 - dy1) * t;
+
+          dv.normalize().mulScalar(r3);
+
+          let tmp = dv[0];
+          dv[0] = -dv[1];
+          dv[1] = tmp;
+
+          if (lastp && lastdv) {
+            let box = getTempArray(12);
+            let a = 0;
+            //box = [
+            box[a++] = lastp[0] - lastdv[0], box[a++] = lastp[1] - lastdv[1];
+            box[a++] = lastp[0] + lastdv[0], box[a++] = lastp[1] + lastdv[1];
+            box[a++] = p[0] + dv[0], box[a++] = p[1] + dv[1];
+
+            box[a++] = lastp[0] - lastdv[0], box[a++] = lastp[1] - lastdv[1];
+            box[a++] = p[0] + dv[0], box[a++] = p[1] + dv[1];
+            box[a++] = p[0] - dv[0], box[a++] = p[1] - dv[1];
+            //];
+
+            for (let j = 0; j < box.length; j += 2) {
+              box[j] /= width;
+              box[j + 1] /= height;
+              box[j + 1] = 1.0 - box[j + 1];
+            }
+
+
+            let du = ds.t - lastds.t;
+            let u1 = lastds.t + du*t;
+            let u2 = lastds.t + du*(t + dt);
+
+            //u1 *= 0.3333;
+            //u2 *= 0.3333;
+
+            let uvs = getTempArray(12);
+            a = 0;
+
+            uvs[a++] = u1, uvs[a++] = 0, uvs[a++] = u1, uvs[a++] = 1.0, uvs[a++] = u2, uvs[a++] = 1.0;
+            uvs[a++] = u1, uvs[a++] = 0, uvs[a++] = u2, uvs[a++] = 1.0, uvs[a++] = u2, uvs[a++] = 0.0;
+
+            /* remember that stroke_t is constant across a dab */
+            let stroket = Math.floor(u1);
+
+            let m = meshes[i];
+
+            m.join(m.color, color3);
+            m.join(m.color, color3);
+            m.join(m.color, color4);
+            m.join(m.color, color3);
+            m.join(m.color, color4);
+            m.join(m.color, color4);
+
+            m.join(m.cos, box, 6);
+            m.join(m.uvs, uvs, 6);
+            m.join(m.ss, six(s), 6);
+            m.join(m.rs, six(rad), 6);
+            m.join(m.dvs, dvs, 6);
+            m.join(m.smear, smearParams, 6);
+            m.join(m.squish, (six(ds.squish)), 6);
+            m.join(m.angle, (six(angle)), 6);
+            m.join(m.soft, (six(ds.soft)), 6);
+            m.join(m.strokeT, (six(stroket)), 6);
+            m.join(m.light, (six(ds.alphaLighting)), 6);
+
+            m.tottri += 2;
+            m.vertex_i += 6;
+
+            tottri += 2;
+            i = (i + 1)%overlap;
+
+          }
+
+          lastp = p;
+          lastdv = dv;
+        }
+
+
+        lastds = ds;
+        //box = rect(lx - r, ly - r, r*2, r*2, true)
+        //console.log(x, y);
+        continue;
+      } else {
+        box = rect(x - r, y - r, r*2, r*2, true)
+      }
+
+      let m = meshes[i];
+
+      for (let j = 0; j < 6; j++) {
+        m.join(m.color, color2);
+      }
+
+      m.join(m.cos, box, 6);
+      m.join(m.uvs, rect(0, 0, 1, 1, false), 6);
+      m.join(m.ss, six(s), 6);
+      m.join(m.rs, six(rad), 6);
+      m.join(m.dvs, dvs, 6);
+      m.join(m.smear, smearParams, 6);
+      m.join(m.squish, (six(ds.squish)), 6);
+      m.join(m.angle, (six(ds.angle)), 6);
+      m.join(m.soft, (six(ds.soft)), 6);
+      m.join(m.strokeT, (six(ds.t)), 6);
+      m.join(m.light, (six(ds.alphaLighting)), 6);
+
+      m.tottri += 2;
+      m.vertex_i += 6;
 
       tottri += 2;
       i = (i + 1)%overlap;
+
+      lastds = ds;
     }
+
+    this.lastds = lastds;
 
     this.queue.length = 0;
 
@@ -357,24 +681,42 @@ export class WebGLPaint extends Canvas {
       smearPickup : this.smearColor
     };
 
+
+    let getMesh = (tottri) => {
+      let ring = this.gpuMeshCache[tottri];
+      if (!ring) {
+        ring = this.gpuMeshCache[tottri] = new util.cachering(() => new GPUMesh(gl, gl.TRIANGLES, tottri), 16);
+      }
+
+      return ring.next();
+    }
+
     for (let m of meshes) {
-      m.mesh = new GPUMesh(gl, gl.TRIANGLES, m.tottri);
-      m.mesh.addLayer(2, "co", m.cos);
-      m.mesh.addLayer(2, "uv", m.uvs);
-      m.mesh.addLayer(1, "strength", m.ss);
-      m.mesh.addLayer(2, "dv", m.dvs);
-      m.mesh.addLayer(1, "radius", m.rs);
-      m.mesh.addLayer(4, "smear", m.smear);
-      m.mesh.addLayer(1, "angle", m.angle);
-      m.mesh.addLayer(1, "squish", m.squish);
-      m.mesh.addLayer(1, "soft", m.soft);
-      m.mesh.addLayer(1, "strokeT", m.strokeT);
-      m.mesh.addLayer(1, "light", m.light);
+      m.finish();
+      m.setLayers(getMesh(m.tottri));
+      /*
+      //console.log(m.tottri);
+      //m.mesh = new GPUMesh(gl, gl.TRIANGLES, m.tottri);
+      m.mesh.setLayer(2, "co", m.cos);
+      m.mesh.setLayer(2, "uv", m.uvs);
+      m.mesh.setLayer(1, "strength", m.ss);
+      m.mesh.setLayer(2, "dv", m.dvs);
+      m.mesh.setLayer(1, "radius", m.rs);
+      m.mesh.setLayer(4, "smear", m.smear);
+      m.mesh.setLayer(1, "angle", m.angle);
+      m.mesh.setLayer(1, "squish", m.squish);
+      m.mesh.setLayer(1, "soft", m.soft);
+      m.mesh.setLayer(1, "strokeT", m.strokeT);
+      m.mesh.setLayer(1, "light", m.light);*/
     }
 
     let fbo;
 
     let defines = {};
+
+    if (continuous) {
+      defines.CONTINUOUS = null;
+    }
 
     if (TRILINEAR_LUT) {
       defines.TRILINEAR_LUT = null;
@@ -397,40 +739,56 @@ export class WebGLPaint extends Canvas {
       uniforms.alphaInvSize = [1.0/alpha.image.width, 1.0/alpha.image.height];
       uniforms.alphaTileSize = alpha.tilesize;
       uniforms.alphaInvTileSize = 1.0/alpha.tilesize;
-      uniforms.alphaRowSize = Math.floor(alpha.image.width / alpha.tilesize);
-      uniforms.alphaInvRowSize = 1.0 / uniforms.alphaRowSize;
+      uniforms.alphaRowSize = Math.floor(alpha.image.width/alpha.tilesize);
+      uniforms.alphaInvRowSize = 1.0/uniforms.alphaRowSize;
     }
 
-    i = 0;
-    for (let m of meshes) {
-      uniforms.pass = i;
+    let steps = 1;
 
-      uniforms.rgba = this.fbos[1].texColor;
-      fbo = this.fbos[0];
-      fbo.bind(gl);
-      m.mesh.draw(gl, uniforms, defines, Shaders.PaintShader);
-      fbo.unbind(gl);
+    if (continuous) {
+      steps = Math.ceil(1.0/brush.spacing);
+    }
 
-      //if (true || brush.tool !== BrushTools.SMEAR) {
+    let du = 1.0/steps;
+    let uvoff = new Vector2();
 
-      gl.finish();
+    for (let step = 0; step < steps; step++) {
+      if (continuous) {
+        uvoff[1] += du;
+        uniforms.uvOff = uvoff;
+      }
 
-      uniforms.rgba = this.fbos[0].texColor;
-      fbo = this.fbos[1];
-      fbo.bind(gl);
-      //this.draw(gl, 0);
-      m.mesh.draw(gl, uniforms, defines, Shaders.BlitShader2);
-      fbo.unbind(gl);
+      i = 0;
+      for (let m of meshes) {
+        uniforms.pass = i;
 
-      gl.finish();
+        uniforms.rgba = this.fbos[1].texColor;
+        fbo = this.fbos[0];
+        fbo.bind(gl);
+        m.mesh.draw(gl, uniforms, defines, Shaders.PaintShader);
+        fbo.unbind(gl);
 
-      //this.swap();
-      //}
+        //if (true || brush.tool !== BrushTools.SMEAR) {
 
-      //if (i > 4) {
-      //break;
-      //}
-      i++;
+        gl.finish();
+
+        uniforms.rgba = this.fbos[0].texColor;
+        fbo = this.fbos[1];
+        fbo.bind(gl);
+        //this.draw(gl, 0);
+        m.mesh.draw(gl, uniforms, defines, Shaders.BlitShader2);
+        fbo.unbind(gl);
+
+        gl.finish();
+
+        //this.swap();
+        //}
+
+        //if (i > 4) {
+        //break;
+        //}
+        i++;
+      }
     }
 
     //get most recent fbo
@@ -683,6 +1041,7 @@ export class WebGLPaint extends Canvas {
   }
 
   beginStroke() {
+    this.lastds = undefined
     this.strokeFirst = true;
   }
 

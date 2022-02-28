@@ -249,6 +249,7 @@ uniform vec2 size;
 uniform float aspect;
 uniform sampler2D rgba;
 uniform vec2 invSize;
+uniform vec2 uvOff;
 
 in vec2 co;
 in vec2 uv;
@@ -261,6 +262,7 @@ in float angle;
 in float soft;
 in float strokeT;
 in float light;
+in vec4 color;
 
 out vec4 vSmear;
 out vec2 vUv;
@@ -273,6 +275,7 @@ out float vSquish;
 out float vSoft;
 out float vStrokeT;
 out float vLighting;
+out vec4 vColor;
 
 vec2 rot2d(vec2 p, float th) {
   float costh = cos(th);
@@ -288,20 +291,22 @@ void main() {
   gl_Position = vec4(co*2.0 - 1.0, 0.0, 1.0);
   
     
-  vec2 uv2 = uv - 0.5;  
+  vec2 uv2 = uv - 0.5;
+  
   uv2 = rot2d(uv2, -angle);
   uv2.x /= (1.0 - squish*0.99);
   uv2 += 0.5;
   
   vLighting = light;
   vCo = co;
-  vUv = uv2;
+  vUv = uv2 + uvOff;
   vStrength = strength;
   vDv = normalize(dv) * invSize;
   vRadius = radius;
   vSmear = smear;
   vSoft = soft + 0.001;
   vStrokeT = strokeT;
+  vColor = color;
 }
 `,
   fragment  : `#version 300 es
@@ -310,7 +315,6 @@ precision highp float;
 uniform vec2 size;
 uniform float aspect;
 uniform sampler2D rgba;
-uniform vec4 color;
 uniform float pass;
 
 uniform vec2 invSize;
@@ -344,6 +348,7 @@ in float vSquish;
 in float vSoft;
 in float vStrokeT;
 in float vLighting;
+in vec4 vColor;
 
 out vec4 fragColor;
 
@@ -501,9 +506,11 @@ vec3 pigmentToColor(vec4 pigment) {
   //about 1/255
   float d = 0.002;
   
+#if 0
   pigment.r += hash(vCo, 0.2342)*DITHER_FAC;
   pigment.g += hash(vCo, 0.7342)*DITHER_FAC;
   pigment.b += hash(vCo, 1.5342)*DITHER_FAC; 
+#endif
 
   vec3 r = sampleLut(pigment.rgb, lutDimen + 0.0001);
 
@@ -565,7 +572,7 @@ vec4 pigmentMix(vec4 a, vec4 b, float fac) {
   r.rgb = pigmentToColor(p3);
   r.rgb += err;
   
-#if 1
+#if 0
   r.r += hash(vCo, 0.2342)*0.5*DITHER_FAC;
   r.g += hash(vCo, 0.7342)*0.5*DITHER_FAC;
   r.b += hash(vCo, 1.5342)*0.5*DITHER_FAC;
@@ -615,9 +622,9 @@ vec4 pigmentMix(vec4 a, vec4 b, float fac) {
 #endif
 
 #ifdef HAVE_BRUSH_ALPHA
-vec4 get_brush_mask() {
-  //float u = vUv[0] * alphaSize[0] * alphaInvTileSize;
-  //float v = vUv[1] * alphaSize[1] * alphaInvTileSize; 
+vec4 get_brush_mask(vec2 finalUv) {
+  //float u = finalUv[0] * alphaSize[0] * alphaInvTileSize;
+  //float v = finalUv[1] * alphaSize[1] * alphaInvTileSize; 
   
   float f = hash1(vStrokeT);
   
@@ -630,8 +637,8 @@ vec4 get_brush_mask() {
   //fx *= alphaRowSize;
   //fy *= alphaRowSize;
   
-  fx += vUv.x*alphaInvRowSize;
-  fy += vUv.y*alphaInvRowSize;
+  fx += finalUv.x*alphaInvRowSize;
+  fy += finalUv.y*alphaInvRowSize;
   
   return texture(brushAlpha, vec2(fx, fy));
 }
@@ -641,16 +648,22 @@ void main() {
   float f = pass * 0.2;
   vec4 c;
   c.a = 1.0;
-  
+
+#ifdef CONTINUOUS
+  vec2 finalUv = fract(vUv);
+#else 
+  vec2 finalUv = vUv;
+#endif
+
   vec4 a = texture(rgba, vCo);
-  c = vec4(vUv, 1.0, 1.0);
+  c = vec4(finalUv, 1.0, 1.0);
   //c.r = fract(f*2.23423 + 0.324);
   //c.g = fract(f*5.23423 + 0.724);
   //c.b = fract(f*7.23423 + 0.124);
   //c.rgb *= 0.3;
   
   //c = texture(lut, vCo);
-  vec2 cent = vUv - 0.5;
+  vec2 cent = finalUv - 0.5;
   
 #if 0
   c = texture(lut, vCo);
@@ -659,29 +672,36 @@ void main() {
 #endif
 
   float w = 1.0 - length(cent)*2.0;
+  w = max(w, 0.0);
+  
+#if TOOL != 3
   if (w <= 0.0) {
     fragColor = a;
     return;
   }
+#endif
   
   w = w < vSoft ? w/vSoft : 1.0;
   w *= w*w*w;
   
   float fac = vStrength*w;
 
-#if TOOL == 0 || TOOL == 2
+#if TOOL == 3 //test tool
+  w = 1.0;
+#elif TOOL == 0 || TOOL == 2
 #ifdef HAVE_BRUSH_ALPHA
   {
-    vec4 mask = get_brush_mask();
+    vec4 mask = get_brush_mask(finalUv);
   
-    c = pigmentMix(a, color, fac*mask[3]);
+    c = pigmentMix(a, vColor, fac*mask[3]);
     
     if (mask[3] > 0.001) {
       vec3 n = mask.rgb*2.0 - 1.0;
       n.xy = rot2d(n.xy, -vAngle);
       
       float light = dot(n, vec3(1.0, 1.0, 0.2));
-      light = pow(abs(light), 4.0)*vLighting*0.2;
+      //light = pow(abs(light), 4.0)*vLighting*0.04;
+      light = (abs(light)-1.25)*vLighting*0.4;
       
       vec4 lc = vec4(light, light, light, 1.0);  
       //lc.rgb *= c.rgb;
@@ -691,12 +711,12 @@ void main() {
     }
   }
 #else
-  c = pigmentMix(a, color, fac);
+  c = pigmentMix(a, vColor, fac);
 #endif
 #elif TOOL == 1
   vec2 dv = vDv*4.0;
   
-  float det1 = -det(vDv*size, (vUv-0.5));
+  float det1 = -det(vDv*size, (finalUv-0.5));
   dv += vec2(vDv.y, -vDv.x)*det1*12.0;
   
   dv.x += hash(vCo, 0.23423)*vSmear[0]*2.0;
@@ -716,14 +736,14 @@ void main() {
   
 #ifdef HAVE_BRUSH_ALPHA
   {
-    vec4 mask = get_brush_mask();
+    vec4 mask = get_brush_mask(finalUv);
   
     if (mask[3] > 0.001) {
       vec3 n = mask.rgb*2.0 - 1.0;
       n.xy = rot2d(n.xy, -vAngle);
       
-      float light = dot(n, vec3(1.0, 1.0, 0.2));
-      light = (abs(light), 4.0)*vLighting*0.02;
+      float light = dot(n, vec3(0.675, 0.675, 0.135));
+      light = (abs(light)-0.75)*vLighting*0.2;
       
       vec4 lc = vec4(light, light, light, 1.0);  
       //lc.rgb *= c.rgb;
@@ -740,7 +760,9 @@ void main() {
 }
 `,
   uniforms  : {},
-  attributes: ["co", "uv", "strength", "dv", "radius", "smear", "squish", "angle", "soft", "strokeT", "light"]
+  attributes: ["co", "uv", "strength", "dv", "radius",
+               "smear", "squish", "angle", "soft", "strokeT",
+               "light", "color"]
 }
 
 

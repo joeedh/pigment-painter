@@ -542,6 +542,8 @@ var _safe_arrays = [
   new Float32Array(4),
 ];
 
+let defkey_digest = new util.HashDigest();
+
 export class ShaderProgram {
   constructor(gl, vertex, fragment, attributes) {
     this.vertexSource = vertex;
@@ -551,6 +553,8 @@ export class ShaderProgram {
     for (let a of attributes) {
       this.attrs.push(a);
     }
+
+    this._defKey = undefined;
 
     this.rebuild = 1;
 
@@ -608,15 +612,24 @@ export class ShaderProgram {
     return ret;
   }
 
-  _get_def_shader(gl, defines) {
-    let defs = {};
+  _hashDefs(defines, digest=defkey_digest.reset()) {
+    let tot = 0;
 
-    if (defines) {
-      defs = Object.assign(defs, this.defines, defines);
-    } else {
-      defs = Object.assign(defs, this.defines);
+    for (let k in defines) {
+      let v = defines[k] || 0;
+      tot++;
+
+      digest.add(k[0]);
+      digest.add(k[k.length-1]);
+      digest.add(v);
     }
 
+    digest.add(tot);
+
+    return digest.get();
+  }
+
+  _getDefString(defs) {
     let s = '';
 
     for (let k in defs) {
@@ -628,19 +641,37 @@ export class ShaderProgram {
         s += `#define ${k}\n`;
       }
     }
-    s = s.trim();
 
-    let key = s;
+    s = s.trim();
+    return s;
+  }
+
+  _get_def_shader(gl, defines) {
+    let defs = {};
+
+    if (defines) {
+      defs = Object.assign(defs, this.defines, defines);
+    } else {
+      defs = Object.assign(defs, this.defines);
+    }
+
+    let key;
+
+    if (0) {
+      key = this._getDefString(defs);
+    } else {
+      key = this._hashDefs(defs);
+    }
 
     if (key.length === 0) {
       key = "main";
     }
 
-    //console.log(key, this._def_shaders);
-
     if (key in this._def_shaders) {
       return this._def_shaders[key];
     }
+
+    let s = this._getDefString(defs);
 
     function repl(src) {
       let i = src.search("precision");
@@ -1015,7 +1046,11 @@ export class GPUVertexAttr {
       data = new cls(data);
     }
 
-    this.data = new cls(data);
+    if (!this.data) {
+      this.data = new cls(data);
+    } else {
+      this.data.set(data);
+    }
 
     if (this.buf && this.size && data.length/elemSize >= this.size) {
       gl.deleteBuffer(this.buf);

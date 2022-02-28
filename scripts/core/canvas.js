@@ -56,10 +56,12 @@ export function getSearchOffs(n, falloffKey, falloffCB) {
   return list;
 }
 
+let huerets = util.cachering.fromConstructor(Vector4, 64);
+
 export class DotSample {
-  constructor(x, y, dx, dy, t, pressure, radius,
-              spacing, strength, angle_degrees, squish,
-              soft, alphaLighting) {
+  constructor(x, y, dx, dy, t, pressure, radius=0.0,
+              spacing=0.0, strength=0.0, angle_degrees=0.0, squish=0.0,
+              soft=0.0, alphaLighting=0.0, followAngle=0.0, hue=0.0) {
     this.x = x;
     this.y = y;
     this.dx = dx;
@@ -73,6 +75,24 @@ export class DotSample {
     this.squish = squish;
     this.soft = soft;
     this.alphaLighting = alphaLighting;
+    this.followAngle = followAngle;
+    this.hue = hue;
+    this.deltaS = 0.0;
+  }
+
+  getColor(color) {
+    //let c = huerets.next();
+
+    let hsv = rgb_to_hsv(color[0], color[1], color[2]);
+    hsv[0] = Math.fract(hsv[0] + this.hue);
+
+    let rgb = hsv_to_rgb(hsv[0], hsv[1], hsv[2]);
+    let c = huerets.next();
+
+    c.load(rgb);
+    c[3] = color[3];
+
+    return c;
   }
 
   copyTo(b) {
@@ -89,6 +109,9 @@ export class DotSample {
     b.squish = this.squish;
     b.soft = this.soft;
     b.alphaLighting = this.alphaLighting;
+    b.followAngle = this.followAngle;
+    b.hue = this.hue;
+    b.deltaS = this.deltaS;
   }
 
   copy() {
@@ -100,19 +123,22 @@ export class DotSample {
 
 DotSample.STRUCT = `
 DotSample {
-  x           : float;
-  y           : float;
-  dx          : float;
-  dy          : float;
-  t           : float;
-  pressure    : float;
-  radius      : float;
-  spacing     : float;
-  strength    : float;
-  angle       : float;
-  squish      : float;
-  soft        : float;
-  alphaLighting : float;
+  x               : float;
+  y               : float;
+  dx              : float;
+  dy              : float;
+  t               : float;
+  pressure        : float;
+  radius          : float;
+  spacing         : float;
+  strength        : float;
+  angle           : float;
+  squish          : float;
+  soft            : float;
+  alphaLighting   : float;
+  followAngle     : float;
+  hue             : float;
+  deltaS          : float;
 }
 `;
 nstructjs.register(DotSample);
@@ -198,14 +224,6 @@ export class Canvas {
     this.tempCanvas = undefined;
   }
 
-  putImageData(image) {
-    this.width = image.width;
-    this.height = image.height;
-
-    this.image = image;
-    window.redraw_all();
-  }
-
   get brush() {
     return this.getBrush(this.activeBrush);
   }
@@ -233,6 +251,14 @@ export class Canvas {
         ERASE: Icons.BRUSH_ERASE,
         SMEAR: Icons.BRUSH_SMEAR
       });
+  }
+
+  putImageData(image) {
+    this.width = image.width;
+    this.height = image.height;
+
+    this.image = image;
+    window.redraw_all();
   }
 
   getImageBlock(x, y, w, h) {

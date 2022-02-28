@@ -315,7 +315,7 @@ export class CanvasEditor extends simple.Editor {
     header.prop("canvas.brush.radius");
     header.prop("canvas.brush.strength");
 
-    sidebar.width = 240;
+    sidebar.width = 340;
     let tab;
 
     let makeBrushProp = (con, name) => {
@@ -350,17 +350,10 @@ export class CanvasEditor extends simple.Editor {
       row.prop(path + ".dynamics['pressure'].flag[ENABLED]").iconsheet = 0;
 
       let ch = this.ctx.api.getValue(this.ctx, path);
-      let uiname = ch.uiName || name;
 
-      let slider = row.slider(path + ".value", {
+      row.slider(path + ".value", {
         packflag: PackFlags.NO_NUMSLIDER_TEXTBOX
       });
-      slider.setAttribute("name", uiname);
-      slider.setAttribute("min", ch.prop.range[0]);
-      slider.setAttribute("max", ch.prop.range[1]);
-      slider.setAttribute("step", ch.prop.step);
-      slider.setAttribute("expRate", ch.prop.expRate);
-      slider.setAttribute("decimalPlaces", ch.prop.decimalPlaces);
 
       panel.iconcheck.remove();
       panel.titleframe.add(panel.iconcheck);
@@ -382,6 +375,9 @@ export class CanvasEditor extends simple.Editor {
 
         panel2.curve1d(path2 + ".curve");
         panel2.prop(path2 + ".factor");
+        panel2.prop(path2 + ".scale");
+        panel2.prop(path2 + ".flag[PERIODIC]");
+        panel2.prop(path2 + ".periodFunc");
 
         panel2.closed = true;
       }
@@ -406,6 +402,7 @@ export class CanvasEditor extends simple.Editor {
 
     makeBrushProp(tab, "soft");
     makeBrushProp(tab, "spacing");
+    makeBrushProp(tab, "hue");
     makeBrushProp(tab, "scatter");
     makeBrushProp(tab, "smear");
     makeBrushProp(tab, "smearLen");
@@ -418,9 +415,10 @@ export class CanvasEditor extends simple.Editor {
 
     makeBrushProp(tab, "alphaLighting");
 
-    tab.prop("canvas.brush.flag[ACCUMULATE]");
+    tab.prop("canvas.brush.strokeMode");
     tab.prop("canvas.brush.flag[FOLLOW]");
-    tab.prop("canvas.brush.mixMode");
+    tab.prop("canvas.brush.flag[ACCUMULATE]");
+    //tab.prop("canvas.brush.mixMode");
 
     let names = ["C", "M", "Y", "K"];
 
@@ -656,6 +654,11 @@ export class CanvasEditor extends simple.Editor {
     console.log("tripletEditor", tripletEditor);
 
     tab.add(tripletEditor);
+
+    tab = sidebar.tab("Brush Editor");
+    let bedit = UIBase.createElement("brush-stack-editor-x");
+    bedit.setAttribute("datapath", "brushstack");
+    tab.add(bedit);
 
     for (let i=0; i<3; i++) {
       this.flushSetCSS();

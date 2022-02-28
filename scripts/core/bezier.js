@@ -17,8 +17,21 @@ export function cubic2(k1, k2, k3, k4, s) {
   return r;
 }
 
+/*
+
+on factor;
+off period;
+
+f1 := -(k1*s**3 - 3.0*k1*s**2 + 3.0*k1*s - k1 - 3.0*k2*s**3 + 6.0*k2*s**2 -
+    3.0*k2*s + 3.0*k3*s**3 - 3.0*k3*s**2 - k4*s**3);
+
+dv := df(f1, s);
+
+*/
 export function dcubic(k1, k2, k3, k4, s) {
-  return -3.0*((s - 1.0)**2*k1 - k4*s**2 + (3.0*s - 2.0)*k3*s - (3.0*s - 1.0)*(s - 1.0)*k2);
+  //return 3.0*((2.0*(k2 - k3)*(s - 1.0) - (k3 - k4)*s)*s - (k1 - k2)*(s - 1.0)**2);
+  return -3*(((3*s - 2)*k3 - k4*s)*s - (3*s - 1)*(s - 1)*k2 + (s - 1)**2*k1);
+  //return -3.0*((s - 1.0)**2*k1 - k4*s**2 + (3.0*s - 2.0)*k3*s - (3.0*s - 1.0)*(s - 1.0)*k2);
 }
 
 
@@ -35,7 +48,7 @@ export function dcubic2(k1, k2, k3, k4, s) {
 }
 
 export function d2cubic(k1, k2, k3, k4, s) {
-  return -6.0*(k1*s-k1-3.0*k2*s+2.0*k2+3.0*k3*s-k3-k4*s);
+  return -6.0*(k1*s - k1 - 3.0*k2*s + 2.0*k2 + 3.0*k3*s - k3 - k4*s);
 }
 
 
@@ -52,8 +65,9 @@ export function d2cubic2(k1, k2, k3, k4, s) {
 }
 
 export function d3cubic(k1, k2, k3, k4, s) {
-  return -6.0*(k1-3.0*k2+3.0*k3-k4);
+  return -6.0*(k1 - 3.0*k2 + 3.0*k3 - k4);
 }
+
 export function d3cubic2(k1, k2, k3, k4, s) {
   let r = d2c2rets.next();
 
@@ -66,10 +80,10 @@ export function d3cubic2(k1, k2, k3, k4, s) {
 
 export function cubic2len(k1, k2, k3, k4) {
   let steps = 16.0;
-  let s = 0.0, ds = 1.0 / steps;
+  let s = 0.0, ds = 1.0/steps;
   let f = 0.0;
 
-  for (let i=0; i<steps; i++, s += ds) {
+  for (let i = 0; i < steps; i++, s += ds) {
     f += dcubic2(k1, k2, k3, k4, s).vectorLength()*ds;
   }
 

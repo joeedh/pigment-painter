@@ -26,6 +26,7 @@ export class GPUMesh {
   constructor(gl, primtype, totprim) {
     this.vbo = new RenderBuffer();
     this.layers = [];
+    this.layerMap = new Map();
     this.gl = gl;
     this.primtype = primtype;
     this.totprim = totprim;
@@ -78,12 +79,37 @@ export class GPUMesh {
     this.vbo.add(this.gl, layer2.key, buf2);
   }
 
+  setLayer(elemSize, attrname, data) {
+    let key = attrname;
+    let layer = this.layerMap.get(attrname);
+    let gl = this.gl;
+
+    if (!layer) {
+      this.addLayer(elemSize, attrname, data);
+      return;
+    }
+
+    layer.data = data;
+    let vbo = this.vbo.get(gl, key);
+
+    this.vbo.get(gl, key).upload(gl, {
+      elemSize,
+      type      : gl.FLOAT,
+      target    : gl.ARRAY_BUFFER,
+      normalized: false,
+      perfHint  : gl.STATIC_DRAW,
+    }, data);
+  }
+
   addLayer(elemSize, attrname, data) {
     let key = attrname;
 
     let gl = this.gl;
 
-    this.layers.push(new GPULayer(key, elemSize, attrname, data));
+    let layer = new GPULayer(key, elemSize, attrname, data);
+    this.layers.push(layer);
+    this.layerMap.set(attrname, layer);
+
     this.vbo.get(gl, key).upload(gl, {
       elemSize,
       type      : gl.FLOAT,

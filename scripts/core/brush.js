@@ -33,7 +33,8 @@ export const BrushMixModes = {
 
 export const DynamicFlags = {
   ENABLED     : 1<<0,
-  NOT_MY_CURVE: 1<<1
+  NOT_MY_CURVE: 1<<1,
+  PERIODIC    : 1<<2,
 };
 
 export const BrushAlphaFlags = {
@@ -50,18 +51,6 @@ export class BrushAlpha {
     this.wasmLoaded = false;
 
     this.gltex = undefined;
-  }
-
-  getGLTex(gl) {
-    if (this.gltex) {
-      return this.gltex;
-    }
-
-    let tex = new Texture(gl.createTexture(), gl);
-    tex.load(gl, this.image.width, this.image.height, this.image.data);
-
-    this.gltex = tex;
-    return tex;
   }
 
   get ready() {
@@ -159,6 +148,18 @@ export class BrushAlpha {
     }
   }
 
+  getGLTex(gl) {
+    if (this.gltex) {
+      return this.gltex;
+    }
+
+    let tex = new Texture(gl.createTexture(), gl);
+    tex.load(gl, this.image.width, this.image.height, this.image.data);
+
+    this.gltex = tex;
+    return tex;
+  }
+
   load() {
     if (this.ready) {
       return;
@@ -190,6 +191,29 @@ window._BrushAlpha = BrushAlpha;
 
 BrushAlpha.loadAlpha("brush1", "/assets/brush1.png", 512);
 
+export const PeriodicFuncs = {
+  TENT  : 0,
+  SMOOTH: 1,
+  SAW   : 2,
+  STEP  : 3
+};
+
+let period_funcs = [
+  function(n) {
+    return Math.tent(n);
+  },
+  function(n) {
+    n = Math.tent(n);
+    return n*n*(3.0 - 2.0*n);
+  },
+  function(n) {
+    return Math.fract(n);
+  },
+  function(n) {
+    return Math.fract(n) > 0.5;
+  }
+];
+
 export class InputDynamic {
   constructor(name, curve = new Curve1D()) {
     this.curve = curve;
@@ -201,6 +225,9 @@ export class InputDynamic {
     this.outputMin = 0.0;
     this.outputMax = 1.0;
 
+    this.periodFunc = PeriodicFuncs.TENT;
+
+    this.scale = 1.0;
     this.factor = 1.0;
   }
 
@@ -222,6 +249,13 @@ export class InputDynamic {
     st.flags("flag", "flag", DynamicFlags).icons({
       ENABLED: Icons.ENABLE_PRESSURE
     });
+
+    st.enum("periodFunc", "periodFunc", PeriodicFuncs, "Wave Type");
+
+    st.float("scale", "scale", "Scale")
+      .noUnits()
+      .range(-50.0, 50.0)
+      .step(0.1);
 
     st.float("inputMin", "inputMin", "Input Min")
       .range(-10.0, 10.0)
@@ -247,6 +281,12 @@ export class InputDynamic {
   evaluate(f) {
     if (!this.enabled) {
       return 1.0;
+    }
+
+    f *= this.scale;
+
+    if (this.flag & DynamicFlags.PERIODIC) {
+      f = period_funcs[this.periodFunc](f);
     }
 
     f = Math.min(Math.max(f, this.inputMin), this.inputMax);
@@ -275,6 +315,8 @@ export class InputDynamic {
     b.outputMin = this.outputMin;
     b.outputMax = this.outputMax;
     b.factor = this.factor;
+    b.scale = this.scale;
+    b.periodFunc = this.periodFunc;
   }
 
   copy() {
@@ -300,6 +342,8 @@ InputDynamic {
   outputMin : float;
   outputMax : float;
   factor    : float;
+  scale     : float;
+  periodFunc: int;
 }
 `;
 nstructjs.register(InputDynamic);
@@ -389,7 +433,6 @@ export class BrushChannel {
     this.prop.uiName = this.uiName;
 
     this.prop.range = [0.0, 1.0];
-
     this.prop.baseUnit = this.prop.displayUnit = "none";
 
     this.dynamics = new BrushDynamics();
@@ -399,6 +442,11 @@ export class BrushChannel {
     this.dynamics.add("tilty");
     this.dynamics.add("tilt_angle");
     this.dynamics.add("angle");
+
+    let dyn = this.dynamics.add("distance");
+
+    dyn.flag |= DynamicFlags.PERIODIC;
+    dyn.scale = 0.25;
   }
 
   get value() {
@@ -412,7 +460,30 @@ export class BrushChannel {
   static defineAPI(api, st) {
     st.string("name", "name", "Name").readOnly();
     st.string("uiName", "uiName", "Display Name").readOnly();
-    st.float("value", "value", "Value").noUnits().decimalPlaces(3);
+    st.float("value", "value", "Value").noUnits().decimalPlaces(3)
+      .customPropCallback(function(prop) {
+        let ch = this.dataref;
+
+        //console.log(ch.name, ch.prop.decimalPlaces, ch.prop.unit);
+
+        prop.decimalPlaces = ch.prop.decimalPlaces;
+        prop.range = ch.prop.range;
+        prop.step = ch.prop.step;
+
+        if (ch.prop.unit) {
+          prop.baseUnit = prop.displayUnit = ch.prop.unit;
+        }
+        prop.baseUnit = ch.prop.baseUnit || "none";
+        prop.displayUnit = ch.prop.displayUnit || "none";
+
+        prop.expRate = ch.prop.expRate;
+        prop.stepIsRelative = ch.prop.stepIsRelative;
+
+        return prop;
+      })
+      .uiNameGetter(function() {
+        return this.dataref.uiName || this.dataref.name;
+      });
 
     st.list("dynamics", "dynamics", {
       get(api, list, key) {
@@ -582,17 +653,18 @@ export class BrushChannelSet extends Array {
   static defaultTemplate() {
     return {
       strength     : {value: 0.5, range: [0.0, 1.0], penPressure: true},
-      radius       : {value: 35.0, range: [0.25, 5000.0]},
+      radius       : {value: 35.0, range: [0.25, 5000.0], unit: "pixel"},
+      hue          : {value: 0.0, range: [-1.0, 1.0]},
       scatter      : {value: 2.75, range: [0.0, 100.0]},
       smear        : {value: 0.33, range: [0.0, 5.0]},
       smearLen     : {value: 3.5, range: [0.0, 50.0]},
-      smearRate    : {value: 1.2, uiName : "Rate"},
+      smearRate    : {value: 1.2, uiName: "Rate"},
       spacing      : {value: 0.25, range: [0.001, 5.0]},
       alphaLighting: {value: 0.25, range: [0.0, 1.0], uiName: "light"},
       color        : new Vector4([0.0, 0.0, 0.0, 1.0]),
-      angle        : {value: 0.0, range: [-360.0, 360.0], decimalPlaces: 1, step: 1},
+      angle        : {value: 0.0, range: [-360.0, 360.0], unit: "degree", decimalPlaces: 1, step: 1},
       squish       : {value: 0.0, range: [0.0, 1.0]},
-      soft         : {value: 0.25, range: [0.0, 1.0], step: 0.05, decimalPlaces : 3},
+      soft         : {value: 0.25, range: [0.0, 1.0], step: 0.05, decimalPlaces: 3},
     }
   }
 
@@ -695,6 +767,10 @@ export class BrushChannelSet extends Array {
       if (typeof v === "object") {
         if (v.uiName) {
           ch.uiName = v.uiName;
+        }
+
+        if (v.unit) {
+          ch.prop.baseUnit = ch.prop.displayUnit = v.unit;
         }
 
         if (v.range) {
@@ -801,6 +877,12 @@ BrushChannelSet {
 `;
 simple.DataModel.register(BrushChannelSet);
 
+export const StrokeModes = {
+  DAB       : 0,
+  SMOOTH_DAB: 1,
+  SMOOTH    : 2
+};
+
 export class Brush {
   constructor() {
     this.channels = new BrushChannelSet();
@@ -811,6 +893,7 @@ export class Brush {
     //this.color = new Vector4([1.0, 1.0, 0.0, 1.0]); //y
     //this.color = new Vector4([1.0, 1.0, 0.0, 1.0]);
 
+    this.strokeMode = StrokeModes.SMOOTH_DAB;
     this.mixMode = BrushMixModes.PIGMENT;
     this.tool = BrushTools.DRAW;
 
@@ -822,9 +905,17 @@ export class Brush {
     this.pigment = undefined;
   }
 
+  get continuous() {
+    return this.strokeMode === StrokeModes.SMOOTH_DAB || this.strokeMode === StrokeModes.SMOOTH;
+  }
+
   static defineAPI(api, st) {
     let def = st.enum("mask", "mask", BrushAlpha.prop, "Brush Alpha");
     def.data = BrushAlpha.prop;
+
+    st.enum("strokeMode", "strokeMode", StrokeModes, "Stroke Mode");
+
+    st.float("hue", "hue", "Hue").noUnits().range(-1.0, 1.0);
 
     st.color4("color", "color", "Color");
     st.float("radius", "radius", "Radius").noUnits().range(1, 512).step(0.5);
@@ -904,6 +995,7 @@ export class Brush {
     b.tool = this.tool;
     b.pigments = this.pigments;
     b.mixMode = this.mixMode;
+    b.strokeMode = this.strokeMode;
     b.mask = this.mask;
 
     b.flag = this.flag;
@@ -938,6 +1030,7 @@ export class Brush {
     digest.add(this.smear);
     digest.add(this.smearLen);
     digest.add(this.smearRate);
+    digest.add(this.strokeMode);
 
     return digest.get();
   }
@@ -951,19 +1044,20 @@ export class Brush {
 
 Brush.STRUCT = `
 Brush {
-  radius   : float;
-  strength : float;
-  color    : vec4;
-  tool     : int;
-  spacing  : float;
-  flag     : int;
-  mixMode  : int;
-  scatter  : float;
-  smear    : float;
-  smearLen : float;
-  smearRate: float;
-  channels : BrushChannelSet;
-  mask     : int;
+  radius     : float;
+  strength   : float;
+  color      : vec4;
+  tool       : int;
+  spacing    : float;
+  flag       : int;
+  mixMode    : int;
+  scatter    : float;
+  smear      : float;
+  smearLen   : float;
+  smearRate  : float;
+  channels   : BrushChannelSet;
+  mask       : int;
+  strokeMode : int;
 }
 `;
 simple.DataModel.register(Brush);

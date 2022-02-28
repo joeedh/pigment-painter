@@ -21,6 +21,7 @@ import {loadShaders} from '../webgl/shaders.js';
 import {PigmentSet, WEBGL_PAINTER} from './colormodel.js';
 
 import {ColorTripletSet, colorTripletSet} from './pairlut.js';
+import {BrushCommandStack} from '../webgl/brush_webgl.js';
 
 export class Context {
   get canvas() {
@@ -37,6 +38,14 @@ export class Context {
 
   get colorTriplets() {
     return colorTripletSet;
+  }
+
+  get brushstack() {
+    return this.state.brushstack;
+  }
+
+  get state() {
+    return _appstate;
   }
 
   get brush() {
@@ -56,6 +65,7 @@ export class Context {
     strct.struct("canvasEditor", "canvasEditor", "Canvas Editor", api.mapStruct(CanvasEditor));
     strct.struct("brush", "brush", "Brush", api.mapStruct(Brush));
     strct.struct("colorTriplets", "colorTriplets", "Color Triplets", api.mapStruct(ColorTripletSet));
+    strct.struct("brushstack", "brushstack", "Brush Stack", api.mapStruct(BrushCommandStack));
 
     strct.struct("pigments", "pigments", "Pigments", api.mapStruct(PigmentSet, true));
 
@@ -95,6 +105,8 @@ export class AppState extends simple.AppState {
     super(Context);
 
     this.defaultEditorClass = CanvasEditor;
+
+    this.brushstack = new BrushCommandStack();
 
     this.toolstack.enforceMemLimit = true;
     //this.toolstack.memLimit = 8*1024*1024;
@@ -222,7 +234,7 @@ export class AppState extends simple.AppState {
         let s = '';
         let buf = new Uint8Array(data);
 
-        for (let i=0; i<buf.length; i++) {
+        for (let i = 0; i < buf.length; i++) {
           s += String.fromCharCode(buf[i]);
         }
 
@@ -334,6 +346,6 @@ export function start() {
 
   window.setInterval(() => {
     _appstate.save();
-  }, 750);
+  }, 2750);
 }
 
