@@ -149,12 +149,35 @@ export const RakeDraw = {
   }
 };
 
+export const TexturedSmear2 = {
+  "name": "Texture Smear 2", "json": {
+    "name"   : "Texture Smear 2", "radius": 49.71174821074851, "strength": 1, "tool": 1, "spacing": 0.5915818065626426,
+    "flag"   : 2, "smearLen": 2.0416781371328954, "smearRate": 0.08884958519373681, "channels": {
+      "0"    : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "data": 1}}, "1": {
+        "prop": {
+          "baseUnit": "pixel", "displayUnit": "pixel", "range": {"length": 2}, "uiRange": {"length": 2},
+          "data"    : 49.71174821074851
+        }
+      }, "5" : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "data": 2.0416781371328954}},
+      "6"    : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "data": 0.08884958519373681}},
+      "7"    : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "data": 0.5915818065626426}},
+      "8"    : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "data": 0.4844400840849448}}, "10": {
+        "prop": {
+          "baseUnit"     : "degree", "displayUnit": "degree", "range": {"length": 2}, "uiRange": {"length": 2},
+          "decimalPlaces": 1
+        }
+      }, "12": {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 3, "data": 0}}
+    }, "mask": 1, "strokeMode": 0
+  }
+};
+
 
 export const Presets = {
   SmoothTextured,
   HatchSmear,
   RakeSmear,
   TexturedSmear,
+  TexturedSmear2,
   RakeDraw
 }
 
