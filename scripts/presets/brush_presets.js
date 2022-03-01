@@ -171,6 +171,32 @@ export const TexturedSmear2 = {
   }
 };
 
+export const HatchDraw = {
+  "name": "Hatch Draw", "json": {
+    "name": "Hatch Draw", "radius": 49.35707630277877,
+    "strength"    : 0.8747391483060809, "color": {"0": 0, "1": 0.426549320727323, "2": 1},
+    "spacing"     : 0.7167474505965152, "flag": 2, "smearLen": 0, "smearRate": 0, "channels": {
+      "0"    : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "data": 0.8747391483060809}}, "1": {
+        "prop": {
+          "baseUnit": "pixel", "displayUnit": "pixel", "range": {"length": 2}, "uiRange": {"length": 2},
+          "data"    : 49.35707630277877
+        }
+      }, "5" : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "data": 0}},
+      "6"    : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "data": 0}},
+      "7"    : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "data": 0.7167474505965152}},
+      "8"    : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "data": 0.5031792454390731}}, "9": {
+        "prop": {
+          "range": {"length": 2}, "uiRange": {"length": 2}, "data": {"0": 0, "1": 0.426549320727323, "2": 1}
+        }
+      }, "10": {
+        "prop"       : {
+          "baseUnit"     : "degree", "displayUnit": "degree", "range": {"length": 2}, "uiRange": {"length": 2},
+          "decimalPlaces": 1, "data": 78.56426958988399
+        }, "dynamics": {"mappings": {"6": {"flag": 5, "scale": 8.122692270080659}, "length": 7}}
+      }, "12": {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 3}}
+    }, "mask"     : 1, "strokeMode": 0, "tool": 0
+  }
+};
 
 export const Presets = {
   SmoothTextured,
@@ -178,7 +204,8 @@ export const Presets = {
   RakeSmear,
   TexturedSmear,
   TexturedSmear2,
-  RakeDraw
+  RakeDraw,
+  HatchDraw
 }
 
 window._Presets = Presets;
