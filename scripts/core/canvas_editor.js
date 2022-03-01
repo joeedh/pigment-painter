@@ -413,6 +413,7 @@ export class CanvasEditor extends simple.Editor {
     makeBrushProp(tab, "spacing");
     makeBrushProp(tab, "hue");
     makeBrushProp(tab, "scatter");
+    makeBrushProp(tab, "random");
     makeBrushProp(tab, "smear");
     makeBrushProp(tab, "smearLen");
     makeBrushProp(tab, "smearRate");

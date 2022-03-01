@@ -279,6 +279,15 @@ export class BrushStrokeOp extends ImageOp {
         }
       }
 
+      let rdx = (Math.random()-0.5)*radius*0.5*ds.random;
+      let rdy = (Math.random()-0.5)*radius*0.5*ds.random;
+
+      dv[0] += rdx;
+      dv[1] += rdy;
+
+      ds.x += rdx;
+      ds.y += rdy;
+
       ds.dx = dv[0];
       ds.dy = dv[1];
 

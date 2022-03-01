@@ -701,6 +701,7 @@ export class BrushChannelSet extends Array {
       angle        : {value: 0.0, range: [-360.0, 360.0], unit: "degree", decimalPlaces: 1, step: 1},
       squish       : {value: 0.0, range: [0.0, 1.0]},
       soft         : {value: 0.25, range: [0.0, 1.0], step: 0.05, decimalPlaces: 3},
+      random       : {value : 0.0, range: [0.0, 15.0], step : 0.1, decimalPlaces: 2},
     }
   }
 

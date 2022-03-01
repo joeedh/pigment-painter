@@ -79,6 +79,7 @@ export class DotSample {
     this.followAngle = followAngle;
     this.hue = hue;
     this.deltaS = 0.0;
+    this.random = 0.0;
   }
 
   getColor(color) {
