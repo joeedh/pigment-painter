@@ -17,6 +17,10 @@ export class PresetList extends Array {
     this.prop = new EnumProperty(undefined, {__nothing__: 0});
   }
 
+  getEnumProp() {
+    return this.prop;
+  }
+
   updateProp() {
     let prop = this.prop;
 
@@ -35,8 +39,8 @@ export class PresetList extends Array {
     prop.descriptions = {};
 
     for (let preset of this) {
-      prop.keys[preset.name] = preset.presetId;
-      prop.values[preset.presetId] = preset.name;
+      prop.values[preset.name] = preset.presetId;
+      prop.keys[preset.presetId] = preset.name;
       prop.ui_value_names[preset.name] = preset.name;
     }
   }
@@ -64,6 +68,10 @@ export class PresetList extends Array {
   }
 
   get(name) {
+    if (typeof name === "number") {
+      return this.idMap.get(name);
+    }
+
     return this.nameMap.get(name);
   }
 }
@@ -104,8 +112,6 @@ export class PresetManager {
   saveChangedPresets() {
     for (let preset of this) {
       let hash = preset.hash();
-
-      console.log(hash);
 
       if (hash !== preset._last_changed_hash) {
         preset._last_changed_hash = hash;

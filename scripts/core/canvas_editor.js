@@ -386,6 +386,19 @@ export class CanvasEditor extends simple.Editor {
     }
 
     tab = sidebar.tab("Brush");
+
+    tab.useIcons(true);
+    tab.row().prop("canvas.activeBrush");
+    tab.useIcons(false);
+
+    let selector = UIBase.createElement("brush-selector-x");
+    //delay initialization of selector
+    //this.doOnce(() => {
+      selector.setAttribute("datapath", "canvas.brush");
+      selector.setAttribute("slotpath", "canvas.activeBrush");
+    //});
+    tab.add(selector);
+
     makeBrushProp(tab, "radius");
     makeBrushProp(tab, "strength");
     tab.prop("canvas.brush.color");
@@ -395,10 +408,6 @@ export class CanvasEditor extends simple.Editor {
     pal.setAttribute("colorpath", "canvas.brush.color");
 
     tab.add(pal);
-
-    tab.useIcons(true);
-    tab.row().prop("canvas.activeBrush");
-    tab.useIcons(false);
 
     makeBrushProp(tab, "soft");
     makeBrushProp(tab, "spacing");

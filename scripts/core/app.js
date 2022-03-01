@@ -294,6 +294,7 @@ export class AppState extends simple.AppState {
     console.error("THAN", lessThan(0,0,2));
 
     if (lessThan(0, 0, 2)) {
+      debugger;
       console.error("Adding old brushes to preset manager");
 
       let canvas = file.objects[0];
@@ -316,13 +317,13 @@ export class AppState extends simple.AppState {
     let iconsheet = document.createElement("img");
     iconsheet.src = PlatformAPI.resolveURL("/assets/iconsheet.svg");
 
+    startPresets();
+
     super.start({
       iconsheet,
       icons: Icons,
       theme
     });
-
-    startPresets();
 
     if (LOCAL_STORAGE_KEY in localStorage) {
       let data = localStorage[LOCAL_STORAGE_KEY];

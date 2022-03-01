@@ -380,7 +380,7 @@ export const theme = {
     'border-color'        : 'rgba(80,107,130, 1)',
     'border-radius'       : 4,
     'border-style'        : 'solid',
-    'border-width'        : 0.5,
+    'border-width'        : 0.0,
     'margin-bottom'       : 0,
     'margin-bottom-closed': 0,
     'margin-left'         : 5.6584810220495445,

@@ -957,6 +957,8 @@ export class Brush extends Preset {
   }
 
   static defineAPI(api, st) {
+    super.defineAPI(api, st);
+
     let def = st.enum("mask", "mask", BrushAlpha.prop, "Brush Alpha");
     def.data = BrushAlpha.prop;
 
@@ -1090,6 +1092,11 @@ export class Brush extends Preset {
     for (let ch of this.channels) {
       ch.hash(digest);
     }
+
+    digest.add(this.mask);
+    digest.add(this.flag);
+    digest.add(this.mixMode);
+    digest.add(this.strokeMode);
 
     return digest.get();
   }

@@ -231,13 +231,18 @@ export class Canvas {
   }
 
   set brush(v) {
-    //ensure brush in slot exists
-    this.getBrush(this.activeBrush);
-
     v.pigments = this.pigments;
     v.pigment = this.pigments[0];
 
-    this.slots[this.activeBrush] = PresetRef.create(v);
+    if (this.slots.length <= this.activeBrush) {
+      let tot = this.activeBrush - this.slots.length + 1;
+
+      for (let i=0; i<tot; i++) {
+        this.slots.push(new PresetRef());
+      }
+    }
+
+    this.slots[this.activeBrush].set(v);
   }
 
   get lutIsLinear() {
@@ -314,6 +319,7 @@ export class Canvas {
     let brush = ref.getPreset();
 
     if (!brush) {
+      console.log(ref);
       console.error("Slot " + slot + " has no brush; searching for an existing one");
 
       for (let brush2 of presetManager.getList("brush")) {
