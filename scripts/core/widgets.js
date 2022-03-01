@@ -8,6 +8,7 @@ import {Icons} from './icon_enum.js';
 import '../webgl/brush_webgl_ops.js';
 import {presetManager} from './presets.js';
 import {Brush, BrushTools} from './brush.js';
+import {Presets} from '../presets/brush_presets.js';
 
 export const BrushIconCache = new Map();
 
@@ -346,6 +347,63 @@ export class AddBrushOp extends ToolOp {
 }
 ToolOp.register(AddBrushOp);
 
+export class ResetBrushOp extends ToolOp {
+  constructor() {
+    super();
+  }
+
+  static tooldef() {
+    return {
+      toolpath: "canvas.reset_brush",
+      uiname  : "Reset Brush",
+      icon    : Icons.REFRESH,
+      inputs  : {
+        slotpath: new StringProperty(),
+        datapath: new StringProperty(),
+      }
+    }
+  }
+
+  undo(ctx) {
+    let brush = ctx.api.getValue(ctx, this.inputs.datapath.getValue());
+    this._undoBrush.copyTo(brush);
+    brush.save();
+  }
+
+  undoPre(ctx) {
+    this._undoBrush = ctx.api.getValue(ctx, this.inputs.datapath.getValue()).copy();
+  }
+
+  exec(ctx) {
+    //let slot = ctx.api.getValue(ctx, this.inputs.slotpath.getValue());
+    let brush = ctx.api.getValue(ctx, this.inputs.datapath.getValue());
+    let preset;
+
+    for (let k in Presets) {
+      if (Presets[k].name === brush.name) {
+        preset = Presets[k];
+        break;
+      }
+    }
+
+    if (!preset) {
+      console.warn("Not a preset brush!");
+
+      let brush2 = new Brush();
+      brush2.tool = brush.tool;
+      brush2.name = brush.name;
+      brush2.presetId = brush.presetId;
+      brush2.iconColor.load(brush.iconColor);
+
+      brush2.copyTo(brush);
+      brush.save();
+    } else {
+      presetManager.resetBuiltin(preset);
+    }
+  }
+}
+ToolOp.register(ResetBrushOp);
+
 export class BrushSelector extends Container {
   constructor() {
     super();
@@ -400,6 +458,7 @@ export class BrushSelector extends Container {
     strip.useIcons(true);
     strip.tool(`canvas.add_brush(slotpath="${slot}" datapath="${path}")`);
     strip.prop(path + ".name");
+    strip.tool(`canvas.reset_brush(slotpath="${slot}" datapath="${path}")`);
 
     let onpress = this.dropbox._onpress;
     this.dropbox._onpress = (e) => {

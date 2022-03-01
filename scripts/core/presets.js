@@ -2,6 +2,7 @@ import {
   nstructjs, util, Vector2, math, UIBase, Vector4,
   simple, EnumProperty
 } from '../path.ux/scripts/pathux.js';
+import {Presets} from '../presets/brush_presets.js';
 
 export const PresetClasses = [];
 
@@ -79,6 +80,51 @@ export class PresetList extends Array {
 export class PresetManager {
   constructor() {
     this.lists = new Map();
+  }
+
+  loadBuiltin(preset, k) {
+    let Brush = Preset.getClass("brush");
+    let list = this.getList("brush");
+
+    preset = Brush.applyDeltaSave(preset);
+
+    let brush;
+
+    try {
+      brush = Brush.loadSave(preset);
+    } catch (error) {
+      console.error("Failed to load builtin brush preset " + k);
+      return;
+    }
+
+    brush.sourcePreset = preset.name;
+
+    if (!list.has(brush.name)) {
+      this.add(brush);
+    }
+
+    brush.save();
+  }
+
+  loadBuiltins() {
+    let Brush = Preset.getClass("brush");
+    let list = this.getList("brush");
+
+    for (let k in Presets) {
+      this.loadBuiltin(Presets[k], k);
+    }
+  }
+
+  resetBuiltin(builtin) {
+    let list = this.getList("brush");
+    let Brush = Preset.getClass("brush");
+
+    let preset = list.get(builtin.name);
+    if (preset) {
+      list.remove(preset);
+    }
+
+    this.loadBuiltin(builtin, builtin.name);
   }
 
   checkForNewVersions() {
@@ -367,6 +413,10 @@ export class PresetRef {
     this.id = id;
   }
 
+  static create(preset) {
+    return new PresetRef(preset.constructor.presetDefine().typeName, preset.name, preset.presetId);
+  }
+
   set(preset) {
     this.typeName = preset.constructor.presetDefine().typeName;
     this.name = preset.name;
@@ -389,11 +439,8 @@ export class PresetRef {
 
     return preset;
   }
-
-  static create(preset) {
-    return new PresetRef(preset.constructor.presetDefine().typeName, preset.name, preset.presetId);
-  }
 }
+
 PresetRef.STRUCT = `
 PresetRef {
   typeName : string;
@@ -408,6 +455,7 @@ export class Preset {
   constructor() {
     this._last_changed_hash = undefined;
 
+    this.sourcePreset = "";
     this.name = "unnamed";
     this.date = new Date();
     this.iconColor = new Vector4([1, 1, 1, 1]);
@@ -536,9 +584,10 @@ export class Preset {
 
 Preset.STRUCT = `
 PresetBase {
-  iconColor : vec4;
-  name      : string;
-  date      : string;
+  sourcePreset : string;
+  iconColor    : vec4;
+  name         : string;
+  date         : string;
 }
 `;
 simple.DataModel.register(Preset);
@@ -547,6 +596,8 @@ export const presetManager = new PresetManager();
 
 export function startPresets() {
   presetManager.loadPresets();
+
+  presetManager.loadBuiltins();
 }
 
 window._presetManager = presetManager;

@@ -1022,6 +1022,114 @@ export class Brush extends Preset {
     })
   }
 
+  static applyDeltaSave(json) {
+    let defjson = new Brush().createSave();
+
+    let rec = (j1, j2) => {
+      for (let k in j2) {
+        let v1 = j1[k];
+        let v2 = j2[k];
+
+        if (typeof v2 === "object" && Array.isArray(v1)) {
+          if (v1.length < v2.length) {
+            v1.length = v2.length;
+          }
+
+          for (let k in v2) {
+            if (k === "length") {
+              continue;
+            }
+
+            k = parseInt(k);
+
+            if (typeof v1[k] === "object") {
+              rec(v1[k], v2[k]);
+            } else {
+              v1[k] = v2[k];
+            }
+          }
+        } else if (typeof v1 === "object") {
+          rec(v1, v2);
+        } else {
+          j1[k] = v2;
+        }
+      }
+    }
+
+    rec(defjson, json);
+
+    return defjson;
+  }
+
+  createDeltaSave() {
+    let json = this.createSave();
+    let defjson = new Brush();
+
+    defjson.presetId = this.presetId;
+    defjson.date = this.date;
+
+    defjson = defjson.createSave();
+
+    let rec = (j1, j2) => {
+      let allsame = true;
+
+      for (let k in j2) {
+        if (!(k in j1)) {
+          continue;
+        }
+
+        let v1 = j1[k];
+        let v2 = j2[k];
+
+        if (typeof v2 === "object" && Array.isArray(v2)) {
+          allsame = allsame && (v1.length === v2.length);
+
+          let newarray = {length: v2.length};
+
+          for (let i = 0; i < v2.length; i++) {
+            let same = v1.length > i ? rec(v1[i], v2[i]) : false;
+
+            if (!same) {
+              allsame = false;
+              newarray[i] = v2[i];
+            }
+          }
+
+          j2[k] = newarray;
+        } else if (typeof v2 === "object") {
+          let same = rec(v1, v2);
+
+          if (same) {
+            delete j2[k];
+          } else {
+            allsame = false;
+          }
+        } else {
+          if (v1 === v2) {
+            delete j2[k];
+          } else {
+            allsame = false;
+          }
+        }
+      }
+
+      return allsame;
+    }
+
+    rec(defjson, json);
+
+    //forcibly add the tool and name fields
+    if (!json.json) {
+      json.json = {};
+    }
+
+    json.json.tool = this.tool;
+    json.json.name = this.name;
+    json.name = this.name;
+
+    return json;
+  }
+
   addExtraStructs(istruct) {
     for (let cls of CurveConstructors) {
       istruct.registerGraph(nstructjs.manager, cls);
