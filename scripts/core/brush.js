@@ -1,6 +1,6 @@
 import {
   Curve1D, EnumProperty, FloatProperty, nstructjs,
-  simple, util, Vec3Property, Vec4Property, Vector3,
+  simple, util, Vec3Property, Vec4Property, Vector3, platform,
   Vector4, ToolProperty, IntProperty, FlagProperty, Vec2Property, StringProperty, ListProperty, CurveConstructors
 } from '../path.ux/scripts/pathux.js';
 import {Pigment} from './colormodel.js';
@@ -120,7 +120,7 @@ export class BrushAlpha {
 
   static loadAlpha(name, url, tilesize) {
     let img = document.createElement("img");
-    img.src = url;
+    img.src = platform.platform.resolveURL(url);
 
     let alpha = new BrushAlpha(name, undefined, tilesize);
 
@@ -194,10 +194,12 @@ simple.DataModel.register(BrushAlpha);
 
 window._BrushAlpha = BrushAlpha;
 
-BrushAlpha.loadAlpha("brush1", "/assets/brush1.png", 512);
-BrushAlpha.loadAlpha("leaves1", "/assets/leaves.png", ~~(1024/3));
-BrushAlpha.loadAlpha("stones1", "/assets/stones.png", ~~(1024/3));
-BrushAlpha.loadAlpha("zipper", "/assets/zipper.png", ~~(1024));
+platform.getPlatformAsync().then(() => {
+  BrushAlpha.loadAlpha("brush1", "assets/brush1.png", 512);
+  BrushAlpha.loadAlpha("leaves1", "assets/leaves.png", ~~(1024/3));
+  BrushAlpha.loadAlpha("stones1", "assets/stones.png", ~~(1024/3));
+  BrushAlpha.loadAlpha("zipper", "assets/zipper.png", ~~(1024));
+});
 
 export const PeriodicFuncs = {
   TENT  : 0,

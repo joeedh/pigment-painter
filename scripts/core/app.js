@@ -315,7 +315,7 @@ export class AppState extends simple.AppState {
 
   start() {
     let iconsheet = document.createElement("img");
-    iconsheet.src = PlatformAPI.resolveURL("/assets/iconsheet.svg");
+    iconsheet.src = PlatformAPI.resolveURL("assets/iconsheet.svg");
 
     startPresets();
 

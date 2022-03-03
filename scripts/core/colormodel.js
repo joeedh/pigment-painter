@@ -12,7 +12,7 @@ export const WEBGL_PAINTER = true;
 
 export const TRILINEAR_LUT = false;
 
-import {simple, util, nstructjs, math, UIBase, Vector3, Vector4, Matrix4} from '../path.ux/scripts/pathux.js';
+import {simple, util, nstructjs, math, UIBase, Vector3, Vector4, Matrix4, platform} from '../path.ux/scripts/pathux.js';
 import * as color from './color.js';
 import {freqToWaveLength, getCie65, waveLengthToFreq} from './cie65.js';
 import {linear_to_rgb, sRGBMatrix} from './color.js';
@@ -29,57 +29,59 @@ export const lightFreqRange = [waveLengthToFreq(lightWaveLengths[0]), waveLength
 let lutImages = {};
 
 export function getLUTImage() {
-  let url = WIDE_GAMUT ? "lut_wide_256.png" : "lut_physical_2_258.png";
-  url = "/assets/" + url;
+  return platform.getPlatformAsync().then(() => {
+    let url = WIDE_GAMUT ? "lut_wide_256.png" : "lut_physical_2_258.png";
+    url = platform.platform.resolveURL("assets/" + url);
 
-  let img;
+    let img;
 
-  if (url in lutImages) {
-    img = lutImages[url];
-  } else {
-    img = lutImages[url] = document.createElement("img");
-    img.src = url;
-  }
-
-  let i = url.length - 1;
-  while (i > 1 && url[i - 1] !== "_") {
-    i--;
-  }
-
-  let dimen = url.slice(i, url.length);
-  if (dimen.search(/\./) >= 0) {
-    dimen = dimen.slice(0, dimen.search(/\./)).trim();
-  }
-
-  if (isNaN(parseFloat(dimen))) {
-    console.error("dimen:", dimen);
-    throw new Error("could not get tile size from lut name, should be lut_DIMEN.png, e.g. lut_256.png");
-  }
-
-  dimen = parseInt(dimen);
-
-  return new Promise((accept, reject) => {
-    function finish() {
-      let canvas = document.createElement("canvas");
-      let g = canvas.getContext("2d");
-
-      canvas.width = img.width;
-      canvas.height = img.height;
-
-      g.drawImage(img, 0, 0);
-      let image = g.getImageData(0, 0, canvas.width, canvas.height);
-
-      accept({
-        image,
-        dimen
-      });
-    }
-
-    if (!img.width) {
-      img.onload = finish;
+    if (url in lutImages) {
+      img = lutImages[url];
     } else {
-      finish();
+      img = lutImages[url] = document.createElement("img");
+      img.src = url;
     }
+
+    let i = url.length - 1;
+    while (i > 1 && url[i - 1] !== "_") {
+      i--;
+    }
+
+    let dimen = url.slice(i, url.length);
+    if (dimen.search(/\./) >= 0) {
+      dimen = dimen.slice(0, dimen.search(/\./)).trim();
+    }
+
+    if (isNaN(parseFloat(dimen))) {
+      console.error("dimen:", dimen);
+      throw new Error("could not get tile size from lut name, should be lut_DIMEN.png, e.g. lut_256.png");
+    }
+
+    dimen = parseInt(dimen);
+
+    return new Promise((accept, reject) => {
+      function finish() {
+        let canvas = document.createElement("canvas");
+        let g = canvas.getContext("2d");
+
+        canvas.width = img.width;
+        canvas.height = img.height;
+
+        g.drawImage(img, 0, 0);
+        let image = g.getImageData(0, 0, canvas.width, canvas.height);
+
+        accept({
+          image,
+          dimen
+        });
+      }
+
+      if (!img.width) {
+        img.onload = finish;
+      } else {
+        finish();
+      }
+    });
   });
 }
 
