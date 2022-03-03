@@ -698,19 +698,19 @@ export class BrushChannelSet extends Array {
   static defaultTemplate() {
     return {
       strength     : {value: 0.5, range: [0.0, 1.0], penPressure: true},
-      radius       : {value: 35.0, range: [0.25, 5000.0], unit: "pixel"},
+      radius       : {value: 35.0, range: [0.25, 1600.0], unit: "pixel"},
       hue          : {value: 0.0, range: [-1.0, 1.0]},
       scatter      : {value: 2.75, range: [0.0, 100.0]},
-      smear        : {value: 0.33, range: [0.0, 5.0]},
-      smearLen     : {value: 3.5, range: [0.0, 50.0]},
+      smear        : {value: 0.33, range: [0.0, 2.5]},
+      smearLen     : {value: 3.5, range: [0.0, 5.0]},
       smearRate    : {value: 1.2, uiName: "Rate"},
-      spacing      : {value: 0.25, range: [0.001, 5.0]},
+      spacing      : {value: 0.25, range: [0.001, 2.5]},
       alphaLighting: {value: 0.25, range: [0.0, 1.0], uiName: "light"},
       color        : new Vector4([0.0, 0.0, 0.0, 1.0]),
-      angle        : {value: 0.0, range: [-360.0, 360.0], unit: "degree", decimalPlaces: 1, step: 1},
+      angle        : {value: 0.0, range: [0.0, 360.0], unit: "degree", decimalPlaces: 1, step: 1},
       squish       : {value: 0.0, range: [0.0, 1.0]},
       soft         : {value: 0.25, range: [0.0, 1.0], step: 0.05, decimalPlaces: 3},
-      random       : {value : 0.0, range: [0.0, 15.0], step : 0.1, decimalPlaces: 2},
+      random       : {value : 0.0, range: [0.0, 10.0], step : 0.1, decimalPlaces: 2},
     }
   }
 
@@ -836,6 +836,10 @@ export class BrushChannelSet extends Array {
             ch.prop[key] = v[key];
           }
         }
+
+        if (!("step" in v)) {
+          ch.prop.step = 0.05;
+        }
       }
     }
   }
@@ -887,6 +891,8 @@ export class BrushChannelSet extends Array {
       }
       if ("step" in v) {
         ch.step(v.step);
+      } else {
+        ch.step(0.05);
       }
 
       if (v.penPressure) {

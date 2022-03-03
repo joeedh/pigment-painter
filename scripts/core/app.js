@@ -322,6 +322,7 @@ export class AppState extends simple.AppState {
     super.start({
       iconsheet,
       icons: Icons,
+      //simpleNumSliders : true,
       theme
     });
 
