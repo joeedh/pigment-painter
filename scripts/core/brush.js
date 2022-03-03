@@ -105,8 +105,10 @@ export class BrushAlpha {
 
   }
 
-  static register(name, image, tilesize) {
-    this.images[name] = new BrushAlpha(name, image, tilesize);
+  static register(name, image, tilesize, alpha) {
+    alpha.image = image;
+
+    this.images[name] = alpha;
 
     let k = name;
     let v = this.images[name].id;
@@ -119,6 +121,8 @@ export class BrushAlpha {
   static loadAlpha(name, url, tilesize) {
     let img = document.createElement("img");
     img.src = url;
+
+    let alpha = new BrushAlpha(name, undefined, tilesize);
 
     return new Promise((accept, reject) => {
       img.onload = (e) => {
@@ -133,7 +137,7 @@ export class BrushAlpha {
         g.drawImage(img, 0, 0);
         let idata = g.getImageData(0, 0, canvas.width, canvas.height);
 
-        this.register(name, idata, tilesize);
+        this.register(name, idata, tilesize, alpha);
 
         console.warn("Loaded alpha!");
         accept(this.images[name]);
@@ -191,6 +195,9 @@ simple.DataModel.register(BrushAlpha);
 window._BrushAlpha = BrushAlpha;
 
 BrushAlpha.loadAlpha("brush1", "/assets/brush1.png", 512);
+BrushAlpha.loadAlpha("leaves1", "/assets/leaves.png", ~~(1024/3));
+BrushAlpha.loadAlpha("stones1", "/assets/stones.png", ~~(1024/3));
+BrushAlpha.loadAlpha("zipper", "/assets/zipper.png", ~~(1024));
 
 export const PeriodicFuncs = {
   TENT  : 0,
