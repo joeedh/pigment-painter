@@ -417,7 +417,7 @@ export const theme = {
     'border-inner'   : 'rgba(73,73,73, 1)',
     'border-outer'   : 'rgba(135,135,135, 1)',
     'border-width'   : 0.75,
-    'mouse-threshold': 15,
+    'mouse-threshold': 35,
   },
 
   scrollbars: {

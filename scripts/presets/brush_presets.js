@@ -198,6 +198,10 @@ export const HatchDraw = {
   }
 };
 
+export const TexturedSmear3 = {"name":"Texture Smear 3","json":{"sourcePreset":"Texture Smear 3","name":"Texture Smear 3","radius":51.03052412106838,"strength":1,"color":{"0":0.029905795186887053,"1":0.003732927706415645,"2":0.8735584010747746},"tool":1,"spacing":0.575973017509964,"flag":2,"scatter":0.8598631753907662,"smear":0.4345132035007072,"smearLen":5,"smearRate":0.1515545662485085,"channels":{"0":{"prop":{"range":{"length":2},"uiRange":{"length":2},"data":1}},"1":{"prop":{"baseUnit":"pixel","displayUnit":"pixel","range":{"length":2},"uiRange":{"length":2},"data":51.03052412106838}},"3":{"prop":{"range":{"length":2},"uiRange":{"length":2},"data":0.8598631753907662}},"4":{"prop":{"range":{"length":2},"uiRange":{"length":2},"data":0.4345132035007072}},"5":{"prop":{"range":{"length":2},"uiRange":{"length":2},"data":5}},"6":{"prop":{"range":{"length":2},"uiRange":{"length":2},"data":0.1515545662485085}},"7":{"prop":{"range":{"length":2},"uiRange":{"length":2},"data":0.575973017509964}},"8":{"prop":{"range":{"length":2},"uiRange":{"length":2},"data":0.715507411117258}},"9":{"prop":{"range":{"length":2},"uiRange":{"length":2},"data":{"0":0.029905795186887053,"1":0.003732927706415645,"2":0.8735584010747746}}},"10":{"prop":{"baseUnit":"degree","displayUnit":"degree","range":{"length":2},"uiRange":{"length":2},"decimalPlaces":1}},"12":{"prop":{"range":{"length":2},"uiRange":{"length":2},"decimalPlaces":3,"data":0.18639538000777994}},"13":{"prop":{"range":{"length":2},"uiRange":{"length":2},"decimalPlaces":2}},"14":{"prop":{"range":{"length":2},"uiRange":{"length":2},"decimalPlaces":3}}},"mask":5,"strokeMode":0}};
+
+export const TexturedDraw = {"name":"Textured Draw","json":{"sourcePreset":"Textured Draw","name":"Textured Draw","strength":1,"color":{"0":1,"1":0.9610622709831306,"2":0},"spacing":0.3670109256083415,"flag":2,"channels":{"0":{"prop":{"range":{"length":2},"uiRange":{"length":2},"data":1}},"1":{"prop":{"baseUnit":"pixel","displayUnit":"pixel","range":{"length":2},"uiRange":{"length":2}}},"7":{"prop":{"range":{"length":2},"uiRange":{"length":2},"data":0.3670109256083415}},"8":{"prop":{"range":{"length":2},"uiRange":{"length":2},"data":0.22053807772243847}},"9":{"prop":{"range":{"length":2},"uiRange":{"length":2},"data":{"0":1,"1":0.9610622709831306,"2":0}}},"10":{"prop":{"baseUnit":"degree","displayUnit":"degree","range":{"length":2},"uiRange":{"length":2},"decimalPlaces":1}},"12":{"prop":{"range":{"length":2},"uiRange":{"length":2},"decimalPlaces":3,"data":0}},"13":{"prop":{"range":{"length":2},"uiRange":{"length":2},"decimalPlaces":2}},"14":{"prop":{"range":{"length":2},"uiRange":{"length":2},"decimalPlaces":3}}},"mask":5,"strokeMode":0,"tool":0}};
+
 export const Presets = {
   SmoothTextured,
   HatchSmear,
@@ -205,7 +209,9 @@ export const Presets = {
   TexturedSmear,
   TexturedSmear2,
   RakeDraw,
-  HatchDraw
+  HatchDraw,
+  TexturedSmear3,
+  TexturedDraw,
 }
 
 window._Presets = Presets;

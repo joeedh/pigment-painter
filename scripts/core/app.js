@@ -291,7 +291,7 @@ export class AppState extends simple.AppState {
       return va < vb;
     }
 
-    console.error("THAN", lessThan(0,0,2));
+    console.error("THAN", lessThan(0, 0, 2));
 
     if (lessThan(0, 0, 2)) {
       debugger;
@@ -323,7 +323,8 @@ export class AppState extends simple.AppState {
       iconsheet,
       icons: Icons,
       //simpleNumSliders : true,
-      theme
+      theme,
+      menusCanPopupAbove: true,
     });
 
     if (LOCAL_STORAGE_KEY in localStorage) {

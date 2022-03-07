@@ -380,7 +380,7 @@ export class ResetBrushOp extends ToolOp {
     let preset;
 
     for (let k in Presets) {
-      if (Presets[k].name === brush.name) {
+      if (Presets[k].name === brush.sourcePreset) {
         preset = Presets[k];
         break;
       }
@@ -390,15 +390,31 @@ export class ResetBrushOp extends ToolOp {
       console.warn("Not a preset brush!");
 
       let brush2 = new Brush();
+      
       brush2.tool = brush.tool;
       brush2.name = brush.name;
       brush2.presetId = brush.presetId;
+      brush2.sourcePreset = brush.sourcePreset;
       brush2.iconColor.load(brush.iconColor);
 
       brush2.copyTo(brush);
       brush.save();
     } else {
-      presetManager.resetBuiltin(preset);
+      if (preset.name == brush.name) {
+        presetManager.resetBuiltin(preset);
+      } else {
+        preset = Brush.applyDeltaSave(preset);
+        let brush2 = Brush.loadSave(preset);
+        
+        brush2.tool = brush.tool;
+        brush2.name = brush.name;
+        brush2.sourcePreset = brush.sourcePreset;
+        brush2.presetId = brush.presetId;
+        brush2.iconColor.load(brush.iconColor);
+
+        brush2.copyTo(brush);
+        brush.save();
+      }
     }
   }
 }

@@ -1,5 +1,5 @@
 import {ShaderProgram, Texture, FBO, RenderBuffer} from './webgl.js';
-import {BrushAlpha, BrushTools, Canvas} from '../core/canvas.js';
+import {BrushAlpha, BrushMixModes, BrushTools, Canvas} from '../core/canvas.js';
 import {
   util, math, nstructjs, Vector2, Vector3,
   Vector4, Matrix4, Quat, UIBase
@@ -502,7 +502,7 @@ export class WebGLPaint extends Canvas {
         // /lastdv = [dx1, dy1];
 
         let steps = 28;
-        let dt = 1.0/(steps-1), t = 0.0;
+        let dt = 1.0/(steps - 1), t = 0.0;
 
         let angle1 = lastds.angle, angle2 = ds.angle;
 
@@ -516,9 +516,9 @@ export class WebGLPaint extends Canvas {
           let angle = angle1 + (angle2 - angle1)*t;
           angle -= Math.PI*0.5;
 
-          let tt = t*t*(3.0-2.0*t);
+          let tt = t*t*(3.0 - 2.0*t);
 
-          let r3 = r1 + (r2 - r1) * tt;
+          let r3 = r1 + (r2 - r1)*tt;
 
           color3.load(color1).interp(color2, t - dt);
           color4.load(color1).interp(color2, t);
@@ -727,13 +727,17 @@ export class WebGLPaint extends Canvas {
       defines.SMEAR_PICKUP = null;
     }
 
-    if (this.pigments.lut.isPairLut) {
+    if (this.pigments.lut && this.pigments.lut.isPairLut) {
       defines.WITH_PAIR_LUT = null;
     }
+
+    defines.MIX_MODE = brush.mixMode ?? BrushMixModes.PIGMENT;
 
     if (alpha) {
       uniforms.brushAlpha = alpha.getGLTex(gl);
       defines.HAVE_BRUSH_ALPHA = true;
+
+      uniforms.alphaLightingMul = brush.alphaLightingMul*alpha.alphaLightingMul;
       uniforms.alphaLighting = brush.alphaLighting;
       uniforms.alphaSize = [alpha.image.width, alpha.image.height];
       uniforms.alphaInvSize = [1.0/alpha.image.width, 1.0/alpha.image.height];

@@ -318,7 +318,19 @@ export class CanvasEditor extends simple.Editor {
     sidebar.width = 340;
     let tab;
 
+    let _proptab, _proprow, _i = 0;
     let makeBrushProp = (con, name) => {
+      if (!_proptab) {
+        _proptab = con;
+      }
+
+      if (_i % 2 === 0) {
+        con = _proprow = _proptab.row();
+      } else {
+        con = _proprow;
+      }
+      _i++;
+
       con = con.row();
       con.noMarginsOrPadding();
 
@@ -428,7 +440,7 @@ export class CanvasEditor extends simple.Editor {
     tab.prop("canvas.brush.strokeMode");
     tab.prop("canvas.brush.flag[FOLLOW]");
     tab.prop("canvas.brush.flag[ACCUMULATE]");
-    //tab.prop("canvas.brush.mixMode");
+    tab.prop("canvas.brush.mixMode");
 
     let names = ["C", "M", "Y", "K"];
 

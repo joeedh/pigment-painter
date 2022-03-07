@@ -43,7 +43,10 @@ export const BrushAlphaFlags = {
 };
 
 export class BrushAlpha {
-  constructor(name, image, tilesize) {
+  constructor(name, image, tilesize, alphaLightingMul = 1.0) {
+    //compensates lighting so lighten/darken cancels itself out
+    //smear only?
+    this.alphaLightingMul = alphaLightingMul;
     this.imageName = name;
     this.image = image;
     this.tilesize = tilesize
@@ -118,11 +121,11 @@ export class BrushAlpha {
     this.prop.ui_value_names[k] = ToolProperty.makeUIName(name);
   }
 
-  static loadAlpha(name, url, tilesize) {
+  static loadAlpha(name, url, tilesize, alphaLightingMul) {
     let img = document.createElement("img");
     img.src = platform.platform.resolveURL(url);
 
-    let alpha = new BrushAlpha(name, undefined, tilesize);
+    let alpha = new BrushAlpha(name, undefined, tilesize, alphaLightingMul);
 
     return new Promise((accept, reject) => {
       img.onload = (e) => {
@@ -186,8 +189,9 @@ BrushAlpha.images = {};
 
 BrushAlpha.STRUCT = `
 BrushAlpha {
-  imageName : string;
-  flag      : int | this.flag & ~1;
+  imageName         : string;
+  flag              : int | this.flag & ~1;
+  alphaLightingMul  : float;
 }
 `;
 simple.DataModel.register(BrushAlpha);
@@ -195,10 +199,12 @@ simple.DataModel.register(BrushAlpha);
 window._BrushAlpha = BrushAlpha;
 
 platform.getPlatformAsync().then(() => {
-  BrushAlpha.loadAlpha("brush1", "assets/brush1.png", 512);
-  BrushAlpha.loadAlpha("leaves1", "assets/leaves.png", ~~(1024/3));
-  BrushAlpha.loadAlpha("stones1", "assets/stones.png", ~~(1024/3));
-  BrushAlpha.loadAlpha("zipper", "assets/zipper.png", ~~(1024));
+  BrushAlpha.loadAlpha("brush1", "assets/brush1.png", 512, 1.0);
+  BrushAlpha.loadAlpha("leaves1", "assets/leaves.png", ~~(1024/3), 0.9);
+  BrushAlpha.loadAlpha("stones1", "assets/stones.png", ~~(1024/3), 0.75);
+  BrushAlpha.loadAlpha("zipper", "assets/zipper.png", 1024, 0.875);
+  BrushAlpha.loadAlpha("brush2", "assets/brush2.png", ~~(1024/3), 0.875);
+  BrushAlpha.loadAlpha("rock", "assets/rocks2.png", 512, 0.875);
 });
 
 export const PeriodicFuncs = {
@@ -513,7 +519,9 @@ export class BrushChannel {
 
         prop.expRate = ch.prop.expRate;
         prop.stepIsRelative = ch.prop.stepIsRelative;
-
+        prop.slideSpeed = ch.prop.slideSpeed;
+        prop.uiRange = ch.prop.uiRange;
+        
         return prop;
       })
       .uiNameGetter(function () {
@@ -697,20 +705,21 @@ export class BrushChannelSet extends Array {
 
   static defaultTemplate() {
     return {
-      strength     : {value: 0.5, range: [0.0, 1.0], penPressure: true},
-      radius       : {value: 35.0, range: [0.25, 1600.0], unit: "pixel"},
-      hue          : {value: 0.0, range: [-1.0, 1.0]},
-      scatter      : {value: 2.75, range: [0.0, 100.0]},
-      smear        : {value: 0.33, range: [0.0, 2.5]},
-      smearLen     : {value: 3.5, range: [0.0, 5.0]},
-      smearRate    : {value: 1.2, uiName: "Rate"},
-      spacing      : {value: 0.25, range: [0.001, 2.5]},
-      alphaLighting: {value: 0.25, range: [0.0, 1.0], uiName: "light"},
-      color        : new Vector4([0.0, 0.0, 0.0, 1.0]),
-      angle        : {value: 0.0, range: [0.0, 360.0], unit: "degree", decimalPlaces: 1, step: 1},
-      squish       : {value: 0.0, range: [0.0, 1.0]},
-      soft         : {value: 0.25, range: [0.0, 1.0], step: 0.05, decimalPlaces: 3},
-      random       : {value : 0.0, range: [0.0, 10.0], step : 0.1, decimalPlaces: 2},
+      strength        : {value: 0.5, range: [0.0, 1.0], penPressure: true},
+      radius          : {value: 35.0, range: [0.25, 1600.0], unit: "pixel", decimalPlaces:1, slideSpeed : 2, step : 2, expRate : 1.65},
+      hue             : {value: 0.0, range: [-1.0, 1.0]},
+      scatter         : {value: 2.75, range: [0.0, 100.0]},
+      smear           : {value: 0.33, range: [0.0, 2.5]},
+      smearLen        : {value: 3.5, range: [0.0, 5.0]},
+      smearRate       : {value: 1.2, uiName: "Rate"},
+      spacing         : {value: 0.25, range: [0.001, 2.5], step:0.05, slideSpeed:3.0, decimalPlaces : 2, expRate : 2.0},
+      alphaLighting   : {value: 0.25, range: [0.0, 2.0], uiName: "light"},
+      color           : new Vector4([0.0, 0.0, 0.0, 1.0]),
+      angle           : {value: 0.0, range: [0.0, 360.0], unit: "degree", decimalPlaces: 1, step: 1},
+      squish          : {value: 0.0, range: [0.0, 1.0]},
+      soft            : {value: 0.25, range: [0.0, 1.0], slideSpeed : 3.0, step: 0.05, decimalPlaces: 2},
+      random          : {value: 0.0, range: [0.0, 10.0], step: 0.25, expRate : 1.5, slideSpeed: 1.0, decimalPlaces: 2},
+      alphaLightingMul: {value: 1.0, range: [0.01, 100.0], step: 0.1, decimalPlaces: 3}, //set by brush alphas
     }
   }
 
@@ -804,7 +813,7 @@ export class BrushChannelSet extends Array {
 
     this.fromTemplate(def2);
 
-    let keys = ["range", "step", "decimalPlaces", "expRate", "stepIsRelative", "baseUnit", "displayUnit"];
+    let keys = ["range", "step", "decimalPlaces", "slideSpeed", "expRate", "stepIsRelative", "baseUnit", "displayUnit"];
 
     for (let k in def) {
       let v = def[k];
@@ -983,7 +992,7 @@ export class Brush extends Preset {
     st.float("hue", "hue", "Hue").noUnits().range(-1.0, 1.0);
 
     st.color4("color", "color", "Color");
-    st.float("radius", "radius", "Radius").noUnits().range(1, 512).step(0.5);
+    st.float("radius", "radius", "Radius").noUnits().range(1, 512).step(0.5).decimalPlaces(2);
     st.float("strength", "strength", "Strength").noUnits().range(0.0, 1.0);
     st.float("spacing", "spacing", "Spacing").noUnits().range(0.005, 4.0);
     st.struct("pigment", "pigment", "Pigment", api.mapStruct(Pigment, true));

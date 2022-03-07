@@ -312,6 +312,7 @@ void main() {
   fragment  : `#version 300 es
 precision highp float;
 
+
 uniform vec2 size;
 uniform float aspect;
 uniform sampler2D rgba;
@@ -336,6 +337,7 @@ uniform float alphaInvTileSize;
 uniform float alphaLighting;
 uniform float alphaRowSize;
 uniform float alphaInvRowSize;
+uniform float alphaLightingMul;
 
 in vec2 vCo;
 in vec2 vUv;
@@ -416,9 +418,20 @@ float hash(vec2 p, float seed2)
   return fract(seed2 + (p3.x + p3.y) * p3.z) - 0.5;
 }
 
+float det(vec2 a, vec2 b) {
+  return a[0]*b[1] - a[1]*b[0];
+}
+
 float saturation(vec3 c) {
   c = ungamma(c);
    
+  float l = c[0]*0.5 + c[1]*0.35 + c[2]*0.15;
+  
+  c = abs(c - l);
+  return c[0] + c[1] + c[2];
+}
+
+float saturation_linear(vec3 c) {
   float l = c[0]*0.5 + c[1]*0.35 + c[2]*0.15;
   
   c = abs(c - l);
@@ -433,6 +446,8 @@ float saturate_weight(vec3 a, vec3 a2, float w) {
   
   return pow(w, s_exp);
 }
+
+#if MIX_MODE == 0
 
 #ifdef TRILINEAR_LUT
 #define DITHER_FAC 0.002
@@ -526,9 +541,6 @@ vec3 clamp2553(vec3 v) {
   return vec3(clamp255(v[0]), clamp255(v[1]), clamp255(v[2]));
 }
 
-float det(vec2 a, vec2 b) {
-  return a[0]*b[1] - a[1]*b[0];
-}
 
 #ifndef WITH_PAIR_LUT
 vec4 pigmentMix(vec4 a, vec4 b, float fac) {
@@ -620,6 +632,176 @@ vec4 pigmentMix(vec4 a, vec4 b, float fac) {
   return vec4(c2, 1.0); //, alpha)
 }
 #endif
+#elif MIX_MODE == 1
+
+vec4 pigmentMix(vec4 a, vec4 b, float fac)
+{
+  return mix(a, b, fac);
+} 
+
+#elif MIX_MODE == 2
+
+vec4 rgb_to_cmyk(float r, float g, float b) {
+  vec4 ret;
+
+  float C = 1.0 - r;
+  float M = 1.0 - g;
+  float Y = 1.0 - b;
+
+  float var_K = 1.0;
+
+  if (C < var_K) var_K = C;
+  if (M < var_K) var_K = M;
+  if (Y < var_K) var_K = Y;
+  
+  if (var_K == 1.0) { //Black
+    C = 0.0;
+    M = 0.0;
+    Y = 0.0;
+  } else {
+    C = (C - var_K)/(1.0 - var_K);
+    M = (M - var_K)/(1.0 - var_K);
+    Y = (Y - var_K)/(1.0 - var_K);
+  }
+
+  float K = var_K;
+
+  ret[0] = C;
+  ret[1] = M;
+  ret[2] = Y;
+  ret[3] = K;
+
+  return ret;
+}
+
+vec3 cmyk_to_rgb(float c, float m, float y, float k) {
+  vec3 ret;
+
+  if (k == 1.0) {
+    return ret;
+  }
+
+  c = c - c*k + k;
+  m = m - m*k + k;
+  y = y - y*k + k;
+
+  ret[0] = 1.0 - c;
+  ret[1] = 1.0 - m;
+  ret[2] = 1.0 - y;
+
+  return ret;
+}
+
+vec3 rgb_to_hsv(float r, float g, float b) {
+  float computedH = 0.0;
+  float computedS = 0.0;
+  float computedV = 0.0;
+  
+  float minRGB = min(r, min(g, b));
+  float maxRGB = max(r, max(g, b));
+
+  // Black-gray-white
+  if (minRGB == maxRGB) {
+    computedV = minRGB;
+
+    vec3 ret;
+    ret[0] = 0.0, ret[1] = 0.0, ret[2] = computedV;
+    return ret;
+  }
+
+  // Colors other than black-gray-white:
+  float d = (r == minRGB) ? g - b : ((b == minRGB) ? r - g : b - r);
+  float h = (r == minRGB) ? 3.0 : ((b == minRGB) ? 1.0 : 5.0);
+
+  computedH = (60.0*(h - d/(maxRGB - minRGB)))/360.0;
+  computedS = (maxRGB - minRGB)/maxRGB;
+  computedV = maxRGB;
+
+  vec3 ret;
+  ret[0] = computedH, ret[1] = computedS, ret[2] = computedV;
+  return ret;
+}
+
+
+vec3 hsv_to_rgb(float h, float s, float v) {
+  float c = 0.0, m = 0.0, x = 0.0;
+  vec3 ret;
+  
+  h *= 360.0;
+
+  c = v*s;
+  x = c*(1.0 - abs((mod(h/60.0, 2.0)) - 1.0));
+  m = v - c;
+  vec3 color;
+  
+  if (h >= 0.0 && h < 60.0) {
+    color = vec3(c + m, x + m, m);
+  } else if (h >= 60.0 && h < 120.0) {
+    color = vec3(x + m, c + m, m);
+  } else if (h >= 120.0 && h < 180.0) {
+    color = vec3(m, c + m, x + m);
+  } else if (h >= 180.0 && h < 240.0) {
+    color = vec3(m, x + m, c + m);
+  } else if (h >= 240.0 && h < 300.0) {
+    color = vec3(x + m, m, c + m);
+  } else if (h >= 300.0 && h < 360.0) {
+    color = vec3(c + m, m, x + m);
+  } else {
+    color = vec3(m, m, m);
+  }
+  
+  return color;
+}
+
+float calcsat(vec3 hsv, vec3 hsvc, float w) {  
+  float w2 = 1.0 - pow(hsv[1]*hsv[2], 2.0);
+  
+  float sfac = w2*(1.0 - w);
+  sfac = pow(sfac, 0.25);
+  
+  float sat2 = pow(hsvc[1], (1.0 - sfac)*0.9 + 0.1);
+  
+  return sat2*w;
+}
+
+vec4 pigmentMix(vec4 a, vec4 b, float fac)
+{
+  a.rgb = ungamma(a.rgb);
+  b.rgb = ungamma(b.rgb);
+  
+  float sat1 = saturation_linear(a.rgb);
+  float sat2 = saturation_linear(b.rgb);
+
+  vec3 hsva = rgb_to_hsv(a.r, a.g, a.b);
+  vec3 hsvb = rgb_to_hsv(b.r, b.g, b.b);
+
+  a = rgb_to_cmyk(a.r, a.g, a.b);
+  b = rgb_to_cmyk(b.r, b.g, b.b);
+  
+  vec4 c = mix(a, b, fac);
+  
+  float satc = saturation_linear(c.rgb);
+  
+  c.rgb = cmyk_to_rgb(c.r, c.g, c.b, c.a);
+  vec3 hsvc = rgb_to_hsv(c.r, c.g, c.b);
+  
+  float newsat = calcsat(hsva, hsvc, 1.0 - fac);
+  newsat += calcsat(hsvb, hsvc, fac);
+  
+  hsvc[1] = min(max(newsat, 0.0), 1.0);
+  c.rgb = hsv_to_rgb(hsvc[0], hsvc[1], hsvc[2]);
+  
+  c.rgb = gamma(c.rgb);
+  c.a = 1.0;
+   
+  return c;
+} 
+#elif MIX_MODE == 3
+vec4 pigmentMix(vec4 a, vec4 b, float fac)
+{
+  return mix(a, b, fac);
+} 
+#endif
 
 #ifdef HAVE_BRUSH_ALPHA
 vec4 get_brush_mask(vec2 finalUv) {
@@ -701,7 +883,7 @@ void main() {
       
       float light = dot(n, vec3(1.0, 1.0, 0.2));
       //light = pow(abs(light), 4.0)*vLighting*0.04;
-      light = (abs(light)-1.25)*vLighting*0.4;
+      light = (abs(light)-1.25*alphaLightingMul)*vLighting*0.4;
       
       vec4 lc = vec4(light, light, light, 1.0);  
       //lc.rgb *= c.rgb;
@@ -743,7 +925,7 @@ void main() {
       n.xy = rot2d(n.xy, -vAngle);
       
       float light = dot(n, vec3(0.675, 0.675, 0.135));
-      light = (abs(light)-0.75)*vLighting*0.2;
+      light = (abs(light)-0.75*alphaLightingMul)*vLighting*0.2;
       
       vec4 lc = vec4(light, light, light, 1.0);  
       //lc.rgb *= c.rgb;
@@ -760,6 +942,7 @@ void main() {
 }
 `,
   uniforms  : {},
+  defines   : {MIX_MODE: 0},
   attributes: ["co", "uv", "strength", "dv", "radius",
                "smear", "squish", "angle", "soft", "strokeT",
                "light", "color"]
@@ -782,3 +965,5 @@ export function loadShaders(gl) {
     Shaders[k] = ShaderProgram.fromDef(gl, def);
   }
 }
+
+window._Shaders = Shaders;

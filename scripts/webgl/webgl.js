@@ -578,6 +578,10 @@ export class ShaderProgram {
       }
     }
 
+    if (def.defines) {
+      ret.defines = Object.assign(ret.defines, def.defines);
+    }
+
     return ret;
   }
 
@@ -663,9 +667,9 @@ export class ShaderProgram {
       key = this._hashDefs(defs);
     }
 
-    if (key.length === 0) {
-      key = "main";
-    }
+    //if (key.length === 0) {
+    //  key = "main";
+    //}
 
     if (key in this._def_shaders) {
       return this._def_shaders[key];
@@ -685,6 +689,7 @@ export class ShaderProgram {
 
     let sp = new ShaderProgram(gl, vertex, fragment, this.attrs);
 
+    sp.defines = defs;
     sp.uniforms = this.uniforms;
     sp._use_def_shaders = false;
 
