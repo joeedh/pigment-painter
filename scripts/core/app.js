@@ -325,6 +325,9 @@ export class AppState extends simple.AppState {
       //simpleNumSliders : true,
       theme,
       menusCanPopupAbove: true,
+      DEBUG : {
+        modalEvents : true
+      }
     });
 
     if (LOCAL_STORAGE_KEY in localStorage) {
