@@ -172,6 +172,9 @@ export class CanvasEditor extends simple.Editor {
       .noUnits()
       .range(0, 256);
 
+    st.bool("blurFilledInPixels", "blurFilledInPixels", "Blur Filled In", "Blur filled in pixels");
+    st.int("blurRadius", "blurRadius", "Blur Radius").noUnits().range(2, 32);
+
     st.bool("fillInLut", "fillInLut", "Fill in empty in LUT");
     st.bool("createReverseLut", "createReverseLut", "Inverse Too", "Also create inverse LUT");
 
@@ -185,6 +188,22 @@ export class CanvasEditor extends simple.Editor {
       .step(0.2);
 
     return st;
+  }
+
+  get blurRadius() {
+    return this.ctx.pigments.blurRadius;
+  }
+
+  set blurRadius(v) {
+    this.ctx.pigments.blurRadius = v;
+  }
+
+  get blurFilledInPixels() {
+    return this.ctx.pigments.blurFilledInPixels;
+  }
+
+  set blurFilledInPixels(v) {
+    this.ctx.pigments.blurFilledInPixels = v;
   }
 
   flagRedraw() {
@@ -437,6 +456,10 @@ export class CanvasEditor extends simple.Editor {
 
     makeBrushProp(tab, "alphaLighting");
 
+    makeBrushProp(tab, "param1");
+    makeBrushProp(tab, "param2");
+    makeBrushProp(tab, "param3");
+
     tab.prop("canvas.brush.strokeMode");
     tab.prop("canvas.brush.flag[FOLLOW]");
     tab.prop("canvas.brush.flag[ACCUMULATE]");
@@ -448,17 +471,32 @@ export class CanvasEditor extends simple.Editor {
 
     this.solver = undefined;
 
-    let button2 = tab.button("Optimize", () => {
+    panel = tab.panel("Solver");
+
+    let button2 = panel.button("Optimize", () => {
       if (this.solver) {
         this.solver.stop();
         this.solver = undefined;
         button2.name = "Optimize";
       } else {
-        this.solver = new Optimizer(this.ctx.brush.pigments);
+        this.solver = new Optimizer(this.ctx.brush.pigments, this.ctx.settings.solverSettings);
         this.solver.start();
         button2.name = "Stop";
       }
     });
+
+    panel.dataPrefix = "settings.solverSettings";
+
+    let row = panel.row();
+    row.label("Error:")
+    row.pathlabel("errorOut");
+
+    panel.prop("flag");
+    panel.prop("randFac");
+    panel.prop("newtonStep");
+    panel.prop("subPoints");
+    panel.prop("highPassFac");
+
     button2.description = "Optimize pigment spectral at a data level";
 
     for (let i = 0; i < 4; i++) {
@@ -597,6 +635,8 @@ export class CanvasEditor extends simple.Editor {
 
     panel.prop("genDimen");
     panel.prop("fillInLut");
+    panel.prop("blurFilledInPixels");
+    panel.prop("blurRadius");
     panel.prop("createReverseLut");
     panel.prop("upscaleGoal");
     panel.prop("lutQuality");

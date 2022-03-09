@@ -80,6 +80,16 @@ export class DotSample {
     this.hue = hue;
     this.deltaS = 0.0;
     this.random = 0.0;
+    this.param1 = 0.0;
+    this.param2 = 0.0;
+    this.param3 = 0.0;
+    this.param4 = 0.0;
+    this.smear = 0.0;
+    this.smearLen = 0.0;
+    this.smearRate = 0.0;
+    this.scatter = 0.0;
+    this.color = new Vector4();
+    this.alphaLightingMul = 1.0;
   }
 
   getColor(color) {
@@ -114,6 +124,15 @@ export class DotSample {
     b.followAngle = this.followAngle;
     b.hue = this.hue;
     b.deltaS = this.deltaS;
+    b.param1 = this.param1;
+    b.param2 = this.param2;
+    b.param3 = this.param3;
+    b.param4 = this.param4;
+    b.smearRate = this.smearRate;
+    b.smear = this.smear;
+    b.smearLen = this.smearLen;
+    b.scatter = this.scatter;
+    b.alphaLightingMul = this.alphaLightingMul;
   }
 
   copy() {
@@ -141,6 +160,15 @@ DotSample {
   followAngle     : float;
   hue             : float;
   deltaS          : float;
+  smear           : float;
+  smearLen        : float;
+  smearRate       : float;
+  scatter         : float;
+  alphaLightingMul: float;
+  param1          : float;
+  param2          : float;
+  param3          : float;
+  param4          : float;
 }
 `;
 nstructjs.register(DotSample);

@@ -285,7 +285,7 @@ export const theme = {
       variant: 'normal',
       style  : 'normal',
       size   : 14,
-      color  : 'rgba(35, 35, 35, 1.0)'
+      color  : 'rgb(241,241,241)'
     }),
   },
 
@@ -348,7 +348,7 @@ export const theme = {
     SlideHeight       : 10,
     TextBoxWidth      : 45,
     'background-color': 'rgba(219,219,219, 1)',
-    height            : 18,
+    height            : 23,
     labelOnTop        : true,
     width             : 135,
   },

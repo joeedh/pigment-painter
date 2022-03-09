@@ -64,6 +64,13 @@ export function d2cubic2(k1, k2, k3, k4, s) {
   return r;
 }
 
+export function kcubic2(k1, k2, k3, k4, s) {
+  let dv1 = dcubic2(k1, k2, k3, k4, s);
+  let dv2 = d2cubic2(k1, k2, k3, k4, s);
+
+  return (dv1[0]*dv2[1] - dv1[10]*dv2[0]) / Math.pow(dv1.dot(dv1), 3.0/2.0);
+}
+
 export function d3cubic(k1, k2, k3, k4, s) {
   return -6.0*(k1 - 3.0*k2 + 3.0*k3 - k4);
 }

@@ -714,12 +714,16 @@ export class BrushChannelSet extends Array {
       smearRate       : {value: 1.2, uiName: "Rate"},
       spacing         : {value: 0.25, range: [0.001, 2.5], step:0.05, slideSpeed:3.0, decimalPlaces : 2, expRate : 2.0},
       alphaLighting   : {value: 0.25, range: [0.0, 2.0], uiName: "light"},
-      color           : new Vector4([0.0, 0.0, 0.0, 1.0]),
+      color           : new Vector4([0.6, 0.0, 0.2, 1.0]),
       angle           : {value: 0.0, range: [0.0, 360.0], unit: "degree", decimalPlaces: 1, step: 1},
       squish          : {value: 0.0, range: [0.0, 1.0]},
       soft            : {value: 0.25, range: [0.0, 1.0], slideSpeed : 3.0, step: 0.05, decimalPlaces: 2},
       random          : {value: 0.0, range: [0.0, 10.0], step: 0.25, expRate : 1.5, slideSpeed: 1.0, decimalPlaces: 2},
       alphaLightingMul: {value: 1.0, range: [0.01, 100.0], step: 0.1, decimalPlaces: 3}, //set by brush alphas
+      param1          : {value: 0.0, range: [-5.0, 5.0], step : 0.1, decimalPlaces: 3},
+      param2          : {value: 0.0, range: [-5.0, 5.0], step : 0.1, decimalPlaces: 3},
+      param3          : {value: 0.0, range: [-5.0, 5.0], step : 0.1, decimalPlaces: 3},
+      param4          : {value: 0.0, range: [-5.0, 5.0], step : 0.1, decimalPlaces: 3},
     }
   }
 
@@ -951,10 +955,6 @@ export class Brush extends Preset {
     this.channels = new BrushChannelSet();
     this.channels.fromTemplate(BrushChannelSet.defaultTemplate());
 
-    //this.color = new Vector4([0.2, 0.0, 0.6, 1.0]); //c
-    this.color = new Vector4([0.6, 0.0, 0.2, 1.0]); //m
-    //this.color = new Vector4([1.0, 1.0, 0.0, 1.0]); //y
-    //this.color = new Vector4([1.0, 1.0, 0.0, 1.0]);
 
     this.strokeMode = StrokeModes.SMOOTH_DAB;
     this.mixMode = BrushMixModes.PIGMENT;
@@ -987,13 +987,22 @@ export class Brush extends Preset {
     let def = st.enum("mask", "mask", BrushAlpha.prop, "Brush Alpha");
     def.data = BrushAlpha.prop;
 
+    let onchange = function() {
+      this.dataref.save();
+    };
+
     st.enum("strokeMode", "strokeMode", StrokeModes, "Stroke Mode");
 
     st.float("hue", "hue", "Hue").noUnits().range(-1.0, 1.0);
 
-    st.color4("color", "color", "Color");
-    st.float("radius", "radius", "Radius").noUnits().range(1, 512).step(0.5).decimalPlaces(2);
-    st.float("strength", "strength", "Strength").noUnits().range(0.0, 1.0);
+    st.color4("color", "color", "Color").on('change', function() {
+      console.log("Color change!");
+      this.dataref.save();
+    });
+
+    st.float("radius", "radius", "Radius").noUnits().range(1, 512).step(0.5).decimalPlaces(2)
+      .on('change', onchange);
+    st.float("strength", "strength", "Strength").noUnits().range(0.0, 1.0).on('change', onchange);
     st.float("spacing", "spacing", "Spacing").noUnits().range(0.005, 4.0);
     st.struct("pigment", "pigment", "Pigment", api.mapStruct(Pigment, true));
     st.float("scatter", "scatter", "Scatter").range(0.0, 10.0).noUnits();
@@ -1230,9 +1239,20 @@ export class Brush extends Preset {
     digest.add(this.flag);
     digest.add(this.mixMode);
     digest.add(this.strokeMode);
+    digest.add(this.color);
 
     return digest.get();
   }
+
+
+  get color() {
+    return this.channels.get("color").value;
+  }
+
+  set color(v) {
+    this.channels.get("color").setValue(v);
+  }
+
 
   loadSTRUCT(reader) {
     super.loadSTRUCT(reader);
@@ -1245,7 +1265,6 @@ export class Brush extends Preset {
 Brush.STRUCT = nstructjs.inherit(Brush, Preset, "Brush") + `
   radius     : float;
   strength   : float;
-  color      : vec4;
   tool       : int;
   spacing    : float;
   flag       : int;

@@ -23,10 +23,34 @@ import {PigmentSet, WEBGL_PAINTER} from './colormodel.js';
 import {ColorTripletSet, colorTripletSet} from './pairlut.js';
 import {BrushCommandStack} from '../webgl/brush_webgl.js';
 import {presetManager, startPresets} from './presets.js';
+import {SolverSettings} from './optimize.js';
+
+export class AppSettings extends simple.DataModel {
+  constructor() {
+    super();
+
+    this.solverSettings = new SolverSettings();
+  }
+
+  static defineAPI(api, st) {
+    st.struct("solverSettings", "solverSettings", "Solver Settings", api.mapStruct(SolverSettings));
+  }
+}
+
+AppSettings.STRUCT = `
+AppSettings {
+  solverSettings : SolverSettings;
+}
+`;
+simple.DataModel.register(AppSettings);
 
 export class Context {
   get canvas() {
     return window._appstate.canvas;
+  }
+
+  get settings() {
+    return this.state.settings;
   }
 
   get canvasEditor() {
@@ -68,7 +92,7 @@ export class Context {
     strct.struct("colorTriplets", "colorTriplets", "Color Triplets", api.mapStruct(ColorTripletSet));
     strct.struct("brushstack", "brushstack", "Brush Stack", api.mapStruct(BrushCommandStack));
 
-    strct.struct("pigments", "pigments", "Pigments", api.mapStruct(PigmentSet, true));
+    strct.struct("pigments", "pigments", "Pigments", api.mapStruct(PigmentSet));
 
     strct.list("palettes", "palettes", {
       get(api, list, key) {
@@ -81,6 +105,8 @@ export class Context {
         return api.mapStruct(Palette, true);
       }
     });
+
+    strct.struct("settings", "settings", "Settings", api.mapStruct(AppSettings));
   }
 }
 
@@ -100,12 +126,14 @@ function makeMenuBar(ctx, container, editor) {
 simple.Editor.registerAppMenu(makeMenuBar);
 
 const LOCAL_STORAGE_KEY = "_pigment_paint";
+const LOCAL_STORAGE_SETTINGS_KEY = "_pigment_paint_settings";
 
 export class AppState extends simple.AppState {
   constructor() {
     super(Context);
 
     this.fileVersion = [0, 0, 2];
+    this.settings = new AppSettings();
 
     this.defaultEditorClass = CanvasEditor;
 
@@ -141,6 +169,40 @@ export class AppState extends simple.AppState {
 
     this.fileExt = "png";
     //this.canvas = new Canvas();
+  }
+
+  saveSettings() {
+    let json = nstructjs.writeJSON(this.settings);
+
+    json = {
+      settingsVersion: 0,
+      json,
+      schema : nstructjs.write_scripts()
+    };
+
+    localStorage[LOCAL_STORAGE_SETTINGS_KEY] = JSON.stringify(json);
+  }
+
+  loadSettingsIntern() {
+    let json = JSON.parse(localStorage[LOCAL_STORAGE_SETTINGS_KEY]);
+
+    let istruct = new nstructjs.STRUCT();
+    istruct.parse_structs(json.schema);
+
+    this.settings = nstructjs.readJSON(json.json, AppSettings);
+  }
+
+  loadSettings() {
+    if (!(LOCAL_STORAGE_SETTINGS_KEY in localStorage)) {
+      return;
+    }
+
+    try {
+      this.loadSettingsIntern();
+    } catch (error) {
+      util.print_stack(error);
+      console.log("Error loading settings!");
+    }
   }
 
   createNewFile() {
@@ -197,6 +259,8 @@ export class AppState extends simple.AppState {
   }
 
   save() {
+    this.saveSettings();
+
     this.saveFile({useJSON: true}).then(data => {
       data = JSON.stringify(data);
       localStorage[LOCAL_STORAGE_KEY] = data;
@@ -325,8 +389,8 @@ export class AppState extends simple.AppState {
       //simpleNumSliders : true,
       theme,
       menusCanPopupAbove: true,
-      DEBUG : {
-        modalEvents : true
+      DEBUG             : {
+        modalEvents: true
       }
     });
 
@@ -342,6 +406,8 @@ export class AppState extends simple.AppState {
         console.error(error.stack);
         console.error("Failed to load startup file", error.message);
       }
+
+      this.loadSettings();
     }
   }
 }

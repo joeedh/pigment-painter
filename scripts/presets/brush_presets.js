@@ -173,9 +173,9 @@ export const TexturedSmear2 = {
 
 export const HatchDraw = {
   "name": "Hatch Draw", "json": {
-    "name": "Hatch Draw", "radius": 49.35707630277877,
-    "strength"    : 0.8747391483060809, "color": {"0": 0, "1": 0.426549320727323, "2": 1},
-    "spacing"     : 0.7167474505965152, "flag": 2, "smearLen": 0, "smearRate": 0, "channels": {
+    "name"    : "Hatch Draw", "radius": 49.35707630277877,
+    "strength": 0.8747391483060809, "color": {"0": 0, "1": 0.426549320727323, "2": 1},
+    "spacing" : 0.7167474505965152, "flag": 2, "smearLen": 0, "smearRate": 0, "channels": {
       "0"    : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "data": 0.8747391483060809}}, "1": {
         "prop": {
           "baseUnit": "pixel", "displayUnit": "pixel", "range": {"length": 2}, "uiRange": {"length": 2},
@@ -194,13 +194,135 @@ export const HatchDraw = {
           "decimalPlaces": 1, "data": 78.56426958988399
         }, "dynamics": {"mappings": {"6": {"flag": 5, "scale": 8.122692270080659}, "length": 7}}
       }, "12": {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 3}}
-    }, "mask"     : 1, "strokeMode": 0, "tool": 0
+    }, "mask" : 1, "strokeMode": 0, "tool": 0
   }
 };
 
-export const TexturedSmear3 = {"name":"Texture Smear 3","json":{"sourcePreset":"Texture Smear 3","name":"Texture Smear 3","radius":51.03052412106838,"strength":1,"color":{"0":0.029905795186887053,"1":0.003732927706415645,"2":0.8735584010747746},"tool":1,"spacing":0.575973017509964,"flag":2,"scatter":0.8598631753907662,"smear":0.4345132035007072,"smearLen":5,"smearRate":0.1515545662485085,"channels":{"0":{"prop":{"range":{"length":2},"uiRange":{"length":2},"data":1}},"1":{"prop":{"baseUnit":"pixel","displayUnit":"pixel","range":{"length":2},"uiRange":{"length":2},"data":51.03052412106838}},"3":{"prop":{"range":{"length":2},"uiRange":{"length":2},"data":0.8598631753907662}},"4":{"prop":{"range":{"length":2},"uiRange":{"length":2},"data":0.4345132035007072}},"5":{"prop":{"range":{"length":2},"uiRange":{"length":2},"data":5}},"6":{"prop":{"range":{"length":2},"uiRange":{"length":2},"data":0.1515545662485085}},"7":{"prop":{"range":{"length":2},"uiRange":{"length":2},"data":0.575973017509964}},"8":{"prop":{"range":{"length":2},"uiRange":{"length":2},"data":0.715507411117258}},"9":{"prop":{"range":{"length":2},"uiRange":{"length":2},"data":{"0":0.029905795186887053,"1":0.003732927706415645,"2":0.8735584010747746}}},"10":{"prop":{"baseUnit":"degree","displayUnit":"degree","range":{"length":2},"uiRange":{"length":2},"decimalPlaces":1}},"12":{"prop":{"range":{"length":2},"uiRange":{"length":2},"decimalPlaces":3,"data":0.18639538000777994}},"13":{"prop":{"range":{"length":2},"uiRange":{"length":2},"decimalPlaces":2}},"14":{"prop":{"range":{"length":2},"uiRange":{"length":2},"decimalPlaces":3}}},"mask":5,"strokeMode":0}};
+export const TexturedSmear3 = {
+  "name": "Texture Smear 3", "json": {
+    "sourcePreset": "Texture Smear 3", "name": "Texture Smear 3", "radius": 51.03052412106838, "strength": 1,
+    "color"       : {"0": 0.029905795186887053, "1": 0.003732927706415645, "2": 0.8735584010747746}, "tool": 1,
+    "spacing"     : 0.575973017509964, "flag": 2, "scatter": 0.8598631753907662, "smear": 0.4345132035007072,
+    "smearLen"    : 5, "smearRate": 0.1515545662485085, "channels": {
+      "0"    : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "data": 1}}, "1": {
+        "prop": {
+          "baseUnit": "pixel", "displayUnit": "pixel", "range": {"length": 2}, "uiRange": {"length": 2},
+          "data"    : 51.03052412106838
+        }
+      }, "3" : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "data": 0.8598631753907662}},
+      "4"    : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "data": 0.4345132035007072}},
+      "5"    : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "data": 5}},
+      "6"    : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "data": 0.1515545662485085}},
+      "7"    : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "data": 0.575973017509964}},
+      "8"    : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "data": 0.715507411117258}}, "9": {
+        "prop": {
+          "range": {"length": 2}, "uiRange": {"length": 2},
+          "data" : {"0": 0.029905795186887053, "1": 0.003732927706415645, "2": 0.8735584010747746}
+        }
+      }, "10": {
+        "prop": {
+          "baseUnit"     : "degree", "displayUnit": "degree", "range": {"length": 2}, "uiRange": {"length": 2},
+          "decimalPlaces": 1
+        }
+      }, "12": {
+        "prop": {
+          "range": {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 3, "data": 0.18639538000777994
+        }
+      }, "13": {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 2}},
+      "14"   : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 3}}
+    }, "mask"     : 5, "strokeMode": 0
+  }
+};
 
-export const TexturedDraw = {"name":"Textured Draw","json":{"sourcePreset":"Textured Draw","name":"Textured Draw","strength":1,"color":{"0":1,"1":0.9610622709831306,"2":0},"spacing":0.3670109256083415,"flag":2,"channels":{"0":{"prop":{"range":{"length":2},"uiRange":{"length":2},"data":1}},"1":{"prop":{"baseUnit":"pixel","displayUnit":"pixel","range":{"length":2},"uiRange":{"length":2}}},"7":{"prop":{"range":{"length":2},"uiRange":{"length":2},"data":0.3670109256083415}},"8":{"prop":{"range":{"length":2},"uiRange":{"length":2},"data":0.22053807772243847}},"9":{"prop":{"range":{"length":2},"uiRange":{"length":2},"data":{"0":1,"1":0.9610622709831306,"2":0}}},"10":{"prop":{"baseUnit":"degree","displayUnit":"degree","range":{"length":2},"uiRange":{"length":2},"decimalPlaces":1}},"12":{"prop":{"range":{"length":2},"uiRange":{"length":2},"decimalPlaces":3,"data":0}},"13":{"prop":{"range":{"length":2},"uiRange":{"length":2},"decimalPlaces":2}},"14":{"prop":{"range":{"length":2},"uiRange":{"length":2},"decimalPlaces":3}}},"mask":5,"strokeMode":0,"tool":0}};
+export const TexturedDraw = {
+  "name": "Textured Draw", "json": {
+    "sourcePreset": "Textured Draw", "name": "Textured Draw", "strength": 1,
+    "color"       : {"0": 1, "1": 0.9610622709831306, "2": 0}, "spacing": 0.3670109256083415, "flag": 2, "channels": {
+      "0"    : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "data": 1}}, "1": {
+        "prop": {
+          "baseUnit": "pixel", "displayUnit": "pixel", "range": {"length": 2}, "uiRange": {"length": 2}
+        }
+      }, "7" : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "data": 0.3670109256083415}},
+      "8"    : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "data": 0.22053807772243847}}, "9": {
+        "prop": {
+          "range": {"length": 2}, "uiRange": {"length": 2}, "data": {"0": 1, "1": 0.9610622709831306, "2": 0}
+        }
+      }, "10": {
+        "prop": {
+          "baseUnit"     : "degree", "displayUnit": "degree", "range": {"length": 2}, "uiRange": {"length": 2},
+          "decimalPlaces": 1
+        }
+      }, "12": {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 3, "data": 0}},
+      "13"   : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 2}},
+      "14"   : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 3}}
+    }, "mask"     : 5, "strokeMode": 0, "tool": 0
+  }
+};
+
+export const YarnDraw = {
+  "name": "Yarn Draw", "json": {
+    "sourcePreset": "Yarn Draw", "name": "Yarn Draw", "radius": 35.326687806783355, "strength": 1,
+    "color"       : {"0": 0.031785469845381276, "1": 0.29389701936841345, "2": 0.5237882781633334},
+    "spacing"     : 0.429816705473152, "flag": 2, "mixMode": 0, "smearLen": 0, "smearRate": 0, "channels": {
+      "0"    : {
+        "prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "data": 1}, "dynamics": {
+          "mappings": {
+            "0"        : {
+              "curve"  : {
+                "generators": {
+                  "0"        : {
+                    "points"   : {
+                      "1"   : {
+                        "0": 0.40859, "1": 0.04688, "eid": 4, "flag": 1, "rco": {"0": 0.40859, "1": 0.04688}
+                      }, "2": {
+                        "0"  : 0.72578, "1": 0.09687, "eid": 3, "flag": 1, "tangent": 1,
+                        "rco": {"0": 0.72578, "1": 0.09687}
+                      }, "3": {"0": 1, "1": 1, "eid": 2, "flag": 0, "tangent": 1, "rco": {"0": 1, "1": 1}}, "length": 4
+                    }, "eidgen": {"cur": 5}, "range": {"length": 2}
+                  }, "length": 7
+                }
+              }, "flag": 0
+            }, "length": 7
+          }
+        }
+      }, "1" : {
+        "prop": {
+          "baseUnit"     : "pixel", "displayUnit": "pixel", "range": {"length": 2}, "uiRange": {"length": 2},
+          "decimalPlaces": 1, "data": 35.326687806783355, "slideSpeed": 2
+        }
+      }, "2" : {"dynamics": {"mappings": {"6": {"flag": 5, "scale": 1.0382229647037313}, "length": 7}}},
+      "5"    : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "data": 0}},
+      "6"    : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "data": 0}}, "7": {
+        "prop": {
+          "range"     : {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 2, "data": 0.429816705473152,
+          "slideSpeed": 3
+        }
+      }, "8" : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "data": 1}}, "9": {
+        "prop": {
+          "range": {"length": 2}, "uiRange": {"length": 2},
+          "data" : {"0": 0.031785469845381276, "1": 0.29389701936841345, "2": 0.5237882781633334}
+        }
+      }, "10": {
+        "prop"       : {
+          "baseUnit"     : "degree", "displayUnit": "degree", "range": {"length": 2}, "uiRange": {"length": 2},
+          "decimalPlaces": 1
+        }, "dynamics": {"mappings": {"6": {"flag": 5, "scale": 8.122692270080659}, "length": 7}}
+      }, "12": {
+        "prop": {
+          "range": {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 2, "data": 0, "slideSpeed": 3
+        }
+      }, "13": {
+        "prop": {
+          "range": {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 2, "data": 1.6355453094088996
+        }
+      }, "14": {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 3}},
+      "15"   : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 3}},
+      "16"   : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 3}},
+      "17"   : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 3}},
+      "18"   : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 3, "data": 1}}
+    }, "mask"     : 5, "tool": 0
+  }
+};
 
 export const Presets = {
   SmoothTextured,
@@ -212,6 +334,7 @@ export const Presets = {
   HatchDraw,
   TexturedSmear3,
   TexturedDraw,
+  YarnDraw,
 }
 
 window._Presets = Presets;

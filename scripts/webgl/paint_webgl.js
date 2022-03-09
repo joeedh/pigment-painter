@@ -75,6 +75,7 @@ class MeshData {
     this.strokeT = this.getArray("strokeT", 1);
     this.light = this.getArray("light", 1);
     this.color = this.getArray("color", 4);
+    this.params = this.getArray("params", 4);
 
     this.tottri = 0;
     this.vertex_i = 0; //current vertex
@@ -452,17 +453,6 @@ export class WebGLPaint extends Canvas {
       let {dx, dy} = ds;
       //dy = -dy;
 
-      let {smear, smearLen, smearRate, scatter} = brush;
-
-      let smearParams = getTempArray(24);
-
-      for (let i = 0; i < 6; i++) {
-        smearParams[i*4] = scatter/this.width;
-        smearParams[i*4 + 1] = smear;
-        smearParams[i*4 + 2] = smearLen/this.width;
-        smearParams[i*4 + 3] = smearRate;
-      }
-
       let dvs = getTempArray(12);
       dvs[0] = dx, dvs[1] = -dy, dvs[2] = dx, dvs[3] = -dy, dvs[4] = dx, dvs[5] = -dy;
       dvs[6] = dx, dvs[7] = -dy, dvs[8] = dx, dvs[9] = -dy, dvs[10] = dx, dvs[11] = -dy;
@@ -572,6 +562,30 @@ export class WebGLPaint extends Canvas {
 
             let m = meshes[i];
 
+            //let {smear, smearLen, smearRate, scatter} = ds;
+            let smear = lastds.smear + (ds.smear - lastds.smear)*t;
+            let smearLen = lastds.smearLen + (ds.smearLen - lastds.smearLen)*t;
+            let smearRate = lastds.smearRate + (ds.smearRate - lastds.smearRate)*t;
+            let scatter = lastds.scatter + (ds.scatter - lastds.scatter)*t;
+
+            let smearParams = getTempArray(24);
+
+            for (let i = 0; i < 6; i++) {
+              smearParams[i*4] = scatter/this.width;
+              smearParams[i*4 + 1] = smear;
+              smearParams[i*4 + 2] = smearLen/this.width;
+              smearParams[i*4 + 3] = smearRate;
+            }
+
+            let params = getTempArray(24);
+
+            for (let i = 0; i < 6; i++) {
+              params[i*4] = ds.param1 || 0;
+              params[i*4 + 1] = ds.param2 || 0;
+              params[i*4 + 2] = ds.param3 || 0;
+              params[i*4 + 3] = ds.param4 || 0;
+            }
+
             m.join(m.color, color3);
             m.join(m.color, color3);
             m.join(m.color, color4);
@@ -590,6 +604,7 @@ export class WebGLPaint extends Canvas {
             m.join(m.soft, (six(ds.soft)), 6);
             m.join(m.strokeT, (six(stroket)), 6);
             m.join(m.light, (six(ds.alphaLighting)), 6);
+            m.join(m.params, params, 6);
 
             m.tottri += 2;
             m.vertex_i += 6;
@@ -612,6 +627,25 @@ export class WebGLPaint extends Canvas {
         box = rect(x - r, y - r, r*2, r*2, true)
       }
 
+      let {smear, smearLen, smearRate, scatter} = ds;
+      let smearParams = getTempArray(24);
+
+      for (let i = 0; i < 6; i++) {
+        smearParams[i*4] = scatter/this.width;
+        smearParams[i*4 + 1] = smear;
+        smearParams[i*4 + 2] = smearLen/this.width;
+        smearParams[i*4 + 3] = smearRate;
+      }
+
+      let params = getTempArray(6*4);
+
+      for (let i = 0; i < 6; i++) {
+        params[i*4] = ds.param1 || 0;
+        params[i*4 + 1] = ds.param2 || 0;
+        params[i*4 + 2] = ds.param3 || 0;
+        params[i*4 + 3] = ds.param4 || 0;
+      }
+
       let m = meshes[i];
 
       for (let j = 0; j < 6; j++) {
@@ -629,6 +663,7 @@ export class WebGLPaint extends Canvas {
       m.join(m.soft, (six(ds.soft)), 6);
       m.join(m.strokeT, (six(ds.t)), 6);
       m.join(m.light, (six(ds.alphaLighting)), 6);
+      m.join(m.params, params, 6);
 
       m.tottri += 2;
       m.vertex_i += 6;

@@ -30,6 +30,7 @@ export class PigmentEditor extends Container {
       this.label(""), this.label(""), this.label("")
     ];
 
+    /*
     let button = this.button("Solve", () => {
       let stop = () => {
         if (this.solving) {
@@ -122,7 +123,7 @@ export class PigmentEditor extends Container {
     row.button("K+", () => {
       this.getPigment().scaleK(1.1);
       this.flagRedraw();
-    });
+    });*/
 
     this.spanel = this.kpanel = undefined;
 
@@ -255,11 +256,12 @@ export class PigmentEditor extends Container {
 
     if (!this.pigmentDropbox) {
       this.pigmentDropbox = this.prop(path + ".pigment");
-      this.prop(path + ".useWavelets");
+      //this.prop(path + ".useWavelets");
     } else {
       this.pigmentDropbox.setAttribute("datapath", path + ".pigment");
     }
 
+    /*
     if (!this.spanel) {
       this.spanel = this.panel("S");
       this.kpanel = this.panel("K");
@@ -327,7 +329,7 @@ export class PigmentEditor extends Container {
 
       panel.prop(this.getAttribute("datapath") + ".randfac");
     }
-
+    */
 
     loadUIData(this, data);
 

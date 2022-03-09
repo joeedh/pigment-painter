@@ -263,6 +263,7 @@ in float soft;
 in float strokeT;
 in float light;
 in vec4 color;
+in vec4 params;
 
 out vec4 vSmear;
 out vec2 vUv;
@@ -276,6 +277,7 @@ out float vSoft;
 out float vStrokeT;
 out float vLighting;
 out vec4 vColor;
+out vec4 vParams;
 
 vec2 rot2d(vec2 p, float th) {
   float costh = cos(th);
@@ -307,6 +309,7 @@ void main() {
   vSoft = soft + 0.001;
   vStrokeT = strokeT;
   vColor = color;
+  vParams = params;
 }
 `,
   fragment  : `#version 300 es
@@ -351,6 +354,7 @@ in float vSoft;
 in float vStrokeT;
 in float vLighting;
 in vec4 vColor;
+in vec4 vParams;
 
 out vec4 fragColor;
 
@@ -447,199 +451,6 @@ float saturate_weight(vec3 a, vec3 a2, float w) {
   return pow(w, s_exp);
 }
 
-#if MIX_MODE == 0
-
-#ifdef TRILINEAR_LUT
-#define DITHER_FAC 0.002
-#else
-#define DITHER_FAC 0.004;
-#endif
-
-vec3 sampleLutIntern(vec3 p, float zoff) {
-  p.r = min(max(p.r, 0.0), 1.0)*(1.0 - lutTexelSize);
-  p.g = min(max(p.g, 0.0), 1.0)*(1.0 - lutTexelSize);
-  p.b = min(max(p.b, 0.0), 1.0)*(1.0 - lutTexelSize);
-  
-  float x = p.r * lutDimen;
-  float y = p.g * lutDimen;
-  float z = p.b * lutDimen;
-  
-#ifndef TRILINEAR_LUT
-  x = floor(x);
-  y = floor(y);
-#endif
-
-  z = floor(z);
-
-  z += zoff;
-  
-#ifdef TRILINEAR_LUT
-  z = min(max(z, 0.0), lutDimen - 1.0);
-#endif
-
-  float col = mod(z, lutRowSize) * lutDimen;
-  float row = floor(z/lutRowSize + 0.00) * lutDimen;
-  
-  float u = (x + col) / (lutSize[0]-1.0);
-  float v = (y + row) / (lutSize[1]-1.0);
-  
-  //float ff = -lutTexelSize*0.005;
-  //u += ff;
-  //v += ff;
-  
-  vec4 r = texture(lut, vec2(u, v));
-  
-  return vec3(r.r, r.b, r.g);
-}
-
-vec3 sampleLut(vec3 p, float zoff) {
-#ifdef TRILINEAR_LUT
-  vec3 a = sampleLutIntern(p, zoff);
-  vec3 b = sampleLutIntern(p, zoff + 1.0);
-  
-  float t = fract(p.z * (lutDimen - 1.0));
-  
-  return mix(a, b, t);
-#else
-  return sampleLutIntern(p, zoff);
-#endif
-}
-
-vec4 colorToPigment(vec3 rgb) {
-  vec4 c = vec4(sampleLut(rgb, 0.0), 0.0);
-  c[3] = 1.0 - c[0] - c[1] - c[2];
-  
-  float tot = c[0]+c[1]+c[2]+c[3];
-  if (tot > 0.0001) {
-    c *= 1.0 / tot;
-  }
-  
-  return c;
-}
-
-vec3 pigmentToColor(vec4 pigment) {
-  //about 1/255
-  float d = 0.002;
-  
-#if 0
-  pigment.r += hash(vCo, 0.2342)*DITHER_FAC;
-  pigment.g += hash(vCo, 0.7342)*DITHER_FAC;
-  pigment.b += hash(vCo, 1.5342)*DITHER_FAC; 
-#endif
-
-  vec3 r = sampleLut(pigment.rgb, lutDimen + 0.0001);
-
-  return r;
-}
-
-float clamp255(float f) {
-  f = min(max(f, 0.0), 1.0);
-  return floor(f*255.0)/255.0;
-}
-
-vec3 clamp2553(vec3 v) {
-  return vec3(clamp255(v[0]), clamp255(v[1]), clamp255(v[2]));
-}
-
-
-#ifndef WITH_PAIR_LUT
-vec4 pigmentMix(vec4 a, vec4 b, float fac) {
-  //fac = saturate_weight(a.rgb, b.rgb, fac);
-
-  vec4 r;
-    
-  //a.rgb = clamp2553(a.rgb);
-  //b.rgb = clamp2553(b.rgb);
-
-#if 0
-  float d = 0.04;
-  a.r += hash(vCo, 0.3342)*d;
-  a.g += hash(vCo, 0.5342)*d;
-  a.b += hash(vCo, 1.4342)*d;
-  
-  b.r += hash(vCo, 0.9342)*d;
-  b.g += hash(vCo, 0.8342)*d;
-  b.b += hash(vCo, 1.7342)*d;
-#endif
-  
-  fac = max(fac, 0.01);
-  
-  vec4 p1 = colorToPigment(a.rgb);
-  vec4 p2 = colorToPigment(b.rgb);
-  
-  //return vec4(pigmentToColor(p2), 1.0);
-  
-  vec3 err1 = a.rgb - pigmentToColor(p1);
-  vec3 err2 = b.rgb - pigmentToColor(p2);
-  
-  vec4 p3 = mix(p1, p2, fac);
-  float tot = p3[0] + p3[1] + p3[2] + p3[3];
-  
-  if (tot > 0.0001) {
-    p3 *= 1.0 / tot;
-  }
-  
-  vec3 err = mix(err1, err2, fac);
-  
-  r.rgb = pigmentToColor(p3);
-  r.rgb += err;
-  
-#if 0
-  r.r += hash(vCo, 0.2342)*0.5*DITHER_FAC;
-  r.g += hash(vCo, 0.7342)*0.5*DITHER_FAC;
-  r.b += hash(vCo, 1.5342)*0.5*DITHER_FAC;
-#endif
-
-  r.rgb = clamp(r.rgb, 0.0, 1.0);
-  
-  r.a = 1.0; //max(a.a, b.a);
-  
-  return r;
-}
-#else
-vec4 pigmentMix(vec4 a, vec4 b, float fac) {
-  float alpha = max(a.a, b.a);
-
-  a.rgb = ungamma(a.rgb);
-  b.rgb = ungamma(b.rgb);
-
-#if 0
-  float d = 0.0045;
-  a.r += hash(vCo, 0.3342)*d;
-  a.g += hash(vCo, 0.5342)*d;
-  a.b += hash(vCo, 1.4342)*d;
-  
-  b.r += hash(vCo, 0.9342)*d;
-  b.g += hash(vCo, 0.8342)*d;
-  b.b += hash(vCo, 1.7342)*d;
-#endif
-
-  vec3 a2 = sampleLut(a.rgb*0.9999, 0.0);
-  vec3 b2 = sampleLut(b.rgb*0.9999, 0.0);
-  
-  //return vec4(sampleLut(b2, lutDimen + 0.00001), 1.0);
-  
-  vec3 da = a.rgb - sampleLut(a2, lutDimen + 0.00001);
-  vec3 db = b.rgb - sampleLut(b2, lutDimen + 0.00001);
-   
-  vec3 delta = da + (db - da) * fac;
-  vec3 c2 = a2 + (b2 - a2) * fac;
-    
-  c2 = sampleLut(c2, lutDimen + 0.00001);
-  c2 += delta;
-  
-  c2 = gamma(c2);
-  return vec4(c2, 1.0); //, alpha)
-}
-#endif
-#elif MIX_MODE == 1
-
-vec4 pigmentMix(vec4 a, vec4 b, float fac)
-{
-  return mix(a, b, fac);
-} 
-
-#elif MIX_MODE == 2
 
 vec4 rgb_to_cmyk(float r, float g, float b) {
   vec4 ret;
@@ -753,13 +564,229 @@ vec3 hsv_to_rgb(float h, float s, float v) {
   return color;
 }
 
+#if MIX_MODE == 0
+
+#ifdef TRILINEAR_LUT
+#define DITHER_FAC 0.002
+#else
+#define DITHER_FAC 0.004;
+#endif
+
+vec3 sampleLutIntern(vec3 p, float zoff) {
+  p.r = min(max(p.r, 0.0), 1.0)*(1.0 - lutTexelSize);
+  p.g = min(max(p.g, 0.0), 1.0)*(1.0 - lutTexelSize);
+  p.b = min(max(p.b, 0.0), 1.0)*(1.0 - lutTexelSize);
+  
+  float x = p.r * lutDimen;
+  float y = p.g * lutDimen;
+  float z = p.b * lutDimen;
+  
+#ifndef TRILINEAR_LUT
+  x = floor(x);
+  y = floor(y);
+#endif
+
+  z = floor(z);
+
+  z += zoff;
+  
+#ifdef TRILINEAR_LUT
+  z = min(max(z, 0.0), lutDimen - 1.0);
+#endif
+
+  float col = mod(z, lutRowSize) * lutDimen;
+  float row = floor(z/lutRowSize + 0.00) * lutDimen;
+  
+  float u = (x + col) / (lutSize[0]-1.0);
+  float v = (y + row) / (lutSize[1]-1.0);
+  
+  //float ff = -lutTexelSize*0.005;
+  //u += ff;
+  //v += ff;
+  
+  vec4 r = texture(lut, vec2(u, v));
+  
+  return vec3(r.r, r.b, r.g);
+}
+
+vec3 sampleLut(vec3 p, float zoff) {
+#ifdef TRILINEAR_LUT
+  vec3 a = sampleLutIntern(p, zoff);
+  vec3 b = sampleLutIntern(p, zoff + 1.0);
+  
+  float t = fract(p.z * (lutDimen - 1.0));
+  
+  return mix(a, b, t);
+#else
+  return sampleLutIntern(p, zoff);
+#endif
+}
+
+vec4 colorToPigment(vec3 rgb) {
+  vec4 c = vec4(sampleLut(rgb, 0.0), 0.0);
+  c[3] = 1.0 - c[0] - c[1] - c[2];
+  
+  float tot = c[0]+c[1]+c[2]+c[3];
+  if (tot > 0.0001) {
+    c *= 1.0 / tot;
+  }
+  
+  return c;
+}
+
+vec3 pigmentToColor(vec4 pigment) {
+  //about 1/255
+  float d = 0.002;
+  
+#if 0
+  pigment.r += hash(vCo, 0.2342)*DITHER_FAC;
+  pigment.g += hash(vCo, 0.7342)*DITHER_FAC;
+  pigment.b += hash(vCo, 1.5342)*DITHER_FAC; 
+#endif
+
+  vec3 r = sampleLut(pigment.rgb, lutDimen + 0.0001);
+
+  return r;
+}
+
+float clamp255(float f) {
+  f = min(max(f, 0.0), 1.0);
+  return floor(f*255.0)/255.0;
+}
+
+vec3 clamp2553(vec3 v) {
+  return vec3(clamp255(v[0]), clamp255(v[1]), clamp255(v[2]));
+}
+
+
+#ifndef WITH_PAIR_LUT
+//#define HAVE_SEPARABLE_MIX
+
+#ifdef HAVE_SEPARABLE_MIX
+vec4 pigmentMix(vec4 a, vec4 b, vec4 fac) {
+#else
+vec4 pigmentMix(vec4 a, vec4 b, float fac) {
+#endif
+
+  //fac = saturate_weight(a.rgb, b.rgb, fac);
+
+  vec4 r;
+    
+  //a.rgb = clamp2553(a.rgb);
+  //b.rgb = clamp2553(b.rgb);
+
+#if 0
+  float d = 0.04;
+  a.r += hash(vCo, 0.3342)*d;
+  a.g += hash(vCo, 0.5342)*d;
+  a.b += hash(vCo, 1.4342)*d;
+  
+  b.r += hash(vCo, 0.9342)*d;
+  b.g += hash(vCo, 0.8342)*d;
+  b.b += hash(vCo, 1.7342)*d;
+#endif
+  
+  fac = max(fac, 0.01);
+  
+  vec4 p1 = colorToPigment(a.rgb);
+  vec4 p2 = colorToPigment(b.rgb);
+  
+  vec3 err1 = a.rgb - pigmentToColor(p1);
+  vec3 err2 = b.rgb - pigmentToColor(p2);
+  
+  vec4 p3 = p1 + (p2 - p1) * fac;
+  float tot = p3[0] + p3[1] + p3[2] + p3[3];
+  
+  if (tot > 0.0001) {
+    p3 *= 1.0 / tot;
+  }
+  
+  float fac2;
+#ifdef HAVE_SEPARABLE_MIX
+  fac2 = (fac[0]+fac[1]+fac[2]+fac[3])*0.25;
+#else
+  fac2 = fac;
+#endif
+
+  vec3 err = err1 + (err2 - err1) * fac2;
+  
+  r.rgb = pigmentToColor(p3);
+  r.rgb += err;
+  
+#if 0
+  r.r += hash(vCo, 0.2342)*0.5*DITHER_FAC;
+  r.g += hash(vCo, 0.7342)*0.5*DITHER_FAC;
+  r.b += hash(vCo, 1.5342)*0.5*DITHER_FAC;
+#endif
+
+  r.rgb = clamp(r.rgb, 0.0, 1.0);
+  
+  r.a = 1.0; //max(a.a, b.a);
+  
+  return r;
+}
+
+#ifdef HAVE_SEPARABLE_MIX
+vec4 pigmentMix(vec4 a, vec4 b, float fac) {
+  return pigmentMix(a, b, vec4(fac, fac, fac, fac));
+}
+#endif
+
+#else
+vec4 pigmentMix(vec4 a, vec4 b, float fac) {
+  float alpha = max(a.a, b.a);
+
+  a.rgb = ungamma(a.rgb);
+  b.rgb = ungamma(b.rgb);
+
+#if 0
+  float d = 0.0045;
+  a.r += hash(vCo, 0.3342)*d;
+  a.g += hash(vCo, 0.5342)*d;
+  a.b += hash(vCo, 1.4342)*d;
+  
+  b.r += hash(vCo, 0.9342)*d;
+  b.g += hash(vCo, 0.8342)*d;
+  b.b += hash(vCo, 1.7342)*d;
+#endif
+
+  vec3 a2 = sampleLut(a.rgb*0.9999, 0.0);
+  vec3 b2 = sampleLut(b.rgb*0.9999, 0.0);
+  
+  //return vec4(sampleLut(b2, lutDimen + 0.00001), 1.0);
+  
+  vec3 da = a.rgb - sampleLut(a2, lutDimen + 0.00001);
+  vec3 db = b.rgb - sampleLut(b2, lutDimen + 0.00001);
+   
+  vec3 delta = da + (db - da) * fac;
+  vec3 c2 = a2 + (b2 - a2) * fac;
+    
+  c2 = sampleLut(c2, lutDimen + 0.00001);
+  c2 += delta;
+  
+  c2 = gamma(c2);
+  return vec4(c2, 1.0); //, alpha)
+}
+#endif
+#elif MIX_MODE == 1
+
+vec4 pigmentMix(vec4 a, vec4 b, float fac)
+{
+  return mix(a, b, fac);
+} 
+
+#elif MIX_MODE == 2
+
 float calcsat(vec3 hsv, vec3 hsvc, float w) {  
-  float w2 = 1.0 - pow(hsv[1]*hsv[2], 2.0);
+  float w2 = 1.0 - pow(hsv[1]*hsv[2], 2.0); // + vParams[2]);
+  
+  float expfac = 1.25;// + vParams[0];
+  float expfac2 = 0.3;// + vParams[1];
   
   float sfac = w2*(1.0 - w);
-  sfac = pow(sfac, 0.25);
+  sfac = pow(sfac, expfac);
   
-  float sat2 = pow(hsvc[1], (1.0 - sfac)*0.9 + 0.1);
+  float sat2 = pow(hsvc[1], (1.0 - sfac)*(1.0-expfac2) + expfac2);
   
   return sat2*w;
 }
@@ -799,8 +826,24 @@ vec4 pigmentMix(vec4 a, vec4 b, float fac)
 #elif MIX_MODE == 3
 vec4 pigmentMix(vec4 a, vec4 b, float fac)
 {
-  return mix(a, b, fac);
-} 
+  a.rgb = ungamma(a.rgb);
+  b.rgb = ungamma(b.rgb);
+  
+  a.rgb = rgb_to_hsv(a.r, a.g, a.b);
+  b.rgb = rgb_to_hsv(b.r, b.g, b.b);
+  
+  vec4 c = mix(a, b, fac);
+  
+  c.rgb = hsv_to_rgb(c.r, c.g, c.b);
+  c.rgb = gamma(c.rgb);
+  c.a = 1.0;
+  
+  //c[0] = vParams[0];
+  //c[1] = vParams[1];
+  //c[2] = vParams[2];
+  
+  return c;
+}
 #endif
 
 #ifdef HAVE_BRUSH_ALPHA
@@ -898,6 +941,14 @@ void main() {
 #elif TOOL == 1
   vec2 dv = vDv*4.0;
   
+#ifdef HAVE_SEPARABLE_MIX
+  float dd = 0.8;
+  //vec4 fac2 = vec4(fac, pow(fac, 1.5), pow(fac, 2.0), pow(fac, 2.5));
+  vec4 fac2 = vec4(fac*dd*dd, fac*dd, fac*dd*dd*dd, fac);
+#else
+  float fac2 = fac; 
+#endif
+
   float det1 = -det(vDv*size, (finalUv-0.5));
   dv += vec2(vDv.y, -vDv.x)*det1*12.0;
   
@@ -909,17 +960,40 @@ void main() {
   vec4 a2 = texture(rgba, vCo - dv);
 
 #ifdef SMEAR_PICKUP
+#ifdef HAVE_SEPARABLE_MIX
+  float ww = vSmear[1];
+  //vec4 w2 = vec4(ww, pow(ww, 1.5), pow(ww, 2.0), pow(ww, 2.5));
+  vec4 w2 = vec4(ww*dd*dd, ww*dd, ww*dd*dd*dd, ww);
+#else
   float w2 = vSmear[1];
-  
+#endif
+
+#endif
+
+#ifdef HAVE_BRUSH_ALPHA
+    vec4 mask = get_brush_mask(finalUv);
+    
+    {
+      float wfac = mask[2];
+      float f = alphaLighting;
+
+      fac2 = pow(fac2, 1.0 - pow(wfac, 1.0 - f*0.5)*f + 0.05);
+      
+#ifdef SMEAR_PICKUP
+      //w2 = pow(w2, 1.0 - pow(wfac, vParams[1]) + vParams[0]);
+      w2 = pow(w2, 1.0 - pow(wfac, 1.0 - f*0.5)*f + 0.05);
+#endif
+    }
+#endif
+
+#ifdef SMEAR_PICKUP
   a2 = pigmentMix(a2, smearPickup, w2);  
 #endif
 
-  c = pigmentMix(a, a2, fac);
+  c = pigmentMix(a, a2, fac2);
   
 #ifdef HAVE_BRUSH_ALPHA
   {
-    vec4 mask = get_brush_mask(finalUv);
-  
     if (mask[3] > 0.001) {
       vec3 n = mask.rgb*2.0 - 1.0;
       n.xy = rot2d(n.xy, -vAngle);
@@ -945,7 +1019,7 @@ void main() {
   defines   : {MIX_MODE: 0},
   attributes: ["co", "uv", "strength", "dv", "radius",
                "smear", "squish", "angle", "soft", "strokeT",
-               "light", "color"]
+               "light", "color", "params"]
 }
 
 

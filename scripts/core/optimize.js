@@ -1,31 +1,81 @@
 import {
   util, nstructjs, Vector2, Vector3,
-  Vector4, Matrix4, Quat, math, keymap
+  Vector4, Matrix4, Quat, math, keymap, simple
 } from '../path.ux/scripts/pathux.js';
 import {Pigment, pigment_data, WIDE_GAMUT} from './colormodel.js';
 
 import '../util/numeric.js';
 
-window.fftTables = function(scale=0.01) {
+
+export const SolverFlags = {
+  NEWTON   : 1,
+  ANNEALING: 2,
+  HIGH_PASS: 4,
+}
+
+export class SolverSettings {
+  constructor() {
+    this.flag = SolverFlags.NEWTON | SolverFlags.ANNEALING;
+    this.randFac = 0.5;
+    this.newtonStep = 0.5;
+    this.subPoints = 256;
+    this.highPassFac = 0.5;
+    this.errorOut = 0.0;
+  }
+
+  static defineAPI(api, st) {
+    st.flags("flag", "flag", SolverFlags, "Solver Flags");
+    st.float("randFac", "randFac", "Random")
+      .noUnits()
+      .range(0.0, 5.0);
+    st.float("newtonStep", "newtonStep", "NewtonStep")
+      .noUnits()
+      .range(0.0, 1.0);
+    st.int("subPoints", "subPoints", "Subpoints")
+      .noUnits()
+      .range(8, 8192)
+      .step(15);
+    st.float("highPassFac", "highPassFac", "High Pass")
+      .noUnits()
+      .range(0.0, 1.0);
+    st.float("errorOut", "errorOut", "Error")
+      .readOnly()
+      .noUnits()
+      .decimalPlaces(4);
+  }
+}
+
+SolverSettings.STRUCT = `
+SolverSettings {
+  flag           : int;
+  randFac        : float;
+  newtonStep     : float;
+  subPoints      : int;
+  highPassFac    : float;
+}
+`;
+simple.DataModel.register(SolverSettings);
+
+window.fftTables = function (scale = 0.01) {
   let ps = _appstate.canvas.pigments;
 
   for (let p of ps) {
     p.updateGen++;
     let lists = [pigment_data.pigmentKS[p.pigment].S, pigment_data.pigmentKS[p.pigment].K];
 
-    for (let i=0; i<lists.length; i++) {
+    for (let i = 0; i < lists.length; i++) {
       let a = lists[i];
       let n = a.length;
       let mid = a.mid;
 
       if (a.phase) {
-        for (let j=0; j<a.length; j++) {
+        for (let j = 0; j < a.length; j++) {
           a[j] /= scale;
         }
 
         numeric.ifftpow2(a, a.phase);
 
-        for (let j=0; j<a.length; j++) {
+        for (let j = 0; j < a.length; j++) {
           a[j] += mid;
         }
 
@@ -33,23 +83,23 @@ window.fftTables = function(scale=0.01) {
         a.phase = undefined;
       } else {
         let b = [];
-        for (let j=0; j<n; j++) {
+        for (let j = 0; j < n; j++) {
           b.push(j);
         }
         let mid = 0.0;
 
-        for (let j=0; j<a.length; j++) {
+        for (let j = 0; j < a.length; j++) {
           mid += a[j];
         }
         mid /= a.length;
 
-        for (let j=0; j<a.length; j++) {
+        for (let j = 0; j < a.length; j++) {
           a[j] -= mid;
         }
 
         numeric.fftpow2(a, b);
 
-        for (let j=0; j<a.length; j++) {
+        for (let j = 0; j < a.length; j++) {
           a[j] *= scale;
         }
 
@@ -99,13 +149,14 @@ function doprint(idx) {
 }
 
 export class Optimizer {
-  constructor(pigments) {
+  constructor(pigments, settings) {
     this.pigments = pigments;
     this.last_log = util.time_ms();
     this.rand = new util.MersenneRandom();
     this.rand2 = new util.MersenneRandom();
     this.stepi = 0;
 
+    this.settings = settings;
     this.cdimen = 8;
     this.cube = new Int8Array(this.cdimen**3);
   }
@@ -135,10 +186,10 @@ export class Optimizer {
   }
 
   genPoints() {
-    let ps = this.pigments;
+    const ps = this.pigments;
 
     let points = [];
-    let totpoint = 256;
+    const totpoint = this.settings.subPoints;
 
     for (let i = 0; i < totpoint; i++) {
       let a = this.rand.random();
@@ -275,6 +326,7 @@ export class Optimizer {
 
     let gk = MAXIMIZE_GAMUT ? 0.2 : 1.0;
     gk *= window.GRAD_FAC ?? 1.0;
+    gk *= this.settings.newtonStep;
 
     for (let p of ps) {
       let grads = [[], []];
@@ -313,7 +365,7 @@ export class Optimizer {
       window.COLOR_SCALE += df;
 
       let r2 = this.error(points);
-      let g = scale_g = (r2 - r1) / df;
+      let g = scale_g = (r2 - r1)/df;
 
       window.COLOR_SCALE = orig;
       totg += g*g*0.2*0.2;
@@ -394,6 +446,8 @@ export class Optimizer {
     let rfac = Math.exp(-this.stepi*0.001*rdecay)*0.2*(window.RANDFAC ?? 1.0);
     let prob = Math.exp(-this.stepi*decay)*0.41;
 
+    rfac *= this.settings.randFac;
+
     doprint(1, rfac.toFixed(4), prob.toFixed(4));
     let origs = [];
 
@@ -441,8 +495,9 @@ export class Optimizer {
     }
   }
 
-  highPassFilter(err=1.0) {
-    let ps = this.pigments;
+  highPassFilter(err = 1.0) {
+    const ps = this.pigments;
+    const fac = this.settings.highPassFac*0.001;
 
     for (let i = 0; i < ps.length; i++) {
       let pdata = pigment_data.pigmentKS[ps[i].pigment];
@@ -453,10 +508,10 @@ export class Optimizer {
 
         let ma = new util.MovingAvg(8);
 
-        let t = window.HIGH_PASS*0.001*err;
+        let t = fac*err;
 
         for (let j = 0; j < table.length; j++) {
-          table[j] = ma.add(table[j])*t + table[j]*(1.0-t);
+          table[j] = ma.add(table[j])*t + table[j]*(1.0 - t);
         }
       }
     }
@@ -472,15 +527,25 @@ export class Optimizer {
 
     //this.highPassFilter();
 
-    if (1||(window.SOLVERS & 2) && (this.stepi%2 === 0)) {
-      this.annealing(points);
-    } else if (window.SOLVERS & 1) {
+    if ((this.settings.flag & SolverFlags.NEWTON) && (this.settings.flag & SolverFlags.ANNEALING)) {
+      if (this.stepi%2 === 0) {
+        this.annealing(points);
+      } else {
+        this.gradientDescent(points);
+      }
+    } else if (this.settings.flag & SolverFlags.NEWTON) {
       this.gradientDescent(points);
+    } else if (this.settings.flag & SolverFlags.ANNEALING) {
+      this.annealing(points);
     }
 
     let err = this.error(points);
 
-    this.highPassFilter(err);
+    this.settings.errorOut = err;
+
+    if (this.settings.flag & SolverFlags.HIGH_PASS) {
+      this.highPassFilter(err);
+    }
 
     if (MAXIMIZE_GAMUT) {
       doprint(2, "error:", this.stepi%rate, err, "COLOR_SCALE:", window.COLOR_SCALE.toFixed(3));

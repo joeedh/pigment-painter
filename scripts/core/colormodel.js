@@ -4,7 +4,7 @@
 * it*/
 import {Camera} from '../webgl/webgl.js';
 
-export const WIDE_GAMUT = true;
+export const WIDE_GAMUT = false;
 
 export const USE_LUT_IMAGE = true;
 export const LINEAR_LUT = false;
@@ -1129,6 +1129,9 @@ export class PigmentSet extends Array {
   constructor() {
     super();
 
+    this.blurFilledInPixels = true;
+    this.blurRadius = 6;
+
     this.useCustomKs = false;
     this.k1 = REFL_K1;
     this.k2 = REFL_K2;
@@ -1142,12 +1145,39 @@ export class PigmentSet extends Array {
     this.lut = undefined;
   }
 
+  static defineAPI(api, st) {
+    st.bool("blurFilledInPixels", "blurFilledInPixels", "Blur Filled In");
+    st.int("blurRadius", "blurRadius", "Blur Radius").noUnits().range(1, 32);
+
+    st.bool("useCustomKs", "useCustomKs", "Custom Specular Ks");
+    st.float("k1", "k1", "K1").noUnits().range(0.0, 1.0).step(0.01);
+    st.float("k2", "k2", "K2").noUnits().range(0.0, 1.0).step(0.01);
+
+    st.list("", "pigments", {
+      get(api, list, key) {
+        return list[key];
+      },
+      getKey(api, list, obj) {
+        return list.indexOf(obj);
+      },
+      getStruct(api, list, key) {
+        return api.mapStruct(Pigment);
+      },
+      getIter(api, list) {
+        return list[Symbol.iterator]();
+      }
+    })
+  }
+
   loadSTRUCT(reader) {
     reader(this);
   }
 
   copy() {
     let ret = new PigmentSet();
+
+    ret.blurFilledInPixels = this.blurFilledInPixels;
+    ret.blurRadius = this.blurRadius;
 
     for (let item of this) {
       ret.push(item.copy());
@@ -1215,7 +1245,7 @@ export class PigmentSet extends Array {
       let idata1 = tmp1.data;
       let idata2 = tmp2.data;
 
-      let itot = lut.length / LTOT;
+      let itot = lut.length/LTOT;
 
       for (let i = 0; i < itot; i++) {
         idata1[i*4] = lut[i*LTOT]*255.0;
@@ -1226,14 +1256,14 @@ export class PigmentSet extends Array {
 
       wasmModule.asm.upscaleImage(ImageSlots.UPSCALE1, ImageSlots.UPSCALE2, dimen, newdimen);
 
-      itot = lut2.length / LTOT;
-      let one255 = 1.0 / 255.0;
+      itot = lut2.length/LTOT;
+      let one255 = 1.0/255.0;
 
       for (let i = 0; i < itot; i++) {
-        lut2[i*LTOT] = idata2[i*4] * one255;
-        lut2[i*LTOT+1] = idata2[i*4+1] * one255;
-        lut2[i*LTOT+2] = idata2[i*4+2] * one255;
-        lut2[i*LTOT+3] = idata2[i*4+3] * one255;
+        lut2[i*LTOT] = idata2[i*4]*one255;
+        lut2[i*LTOT + 1] = idata2[i*4 + 1]*one255;
+        lut2[i*LTOT + 2] = idata2[i*4 + 2]*one255;
+        lut2[i*LTOT + 3] = idata2[i*4 + 3]*one255;
       }
 
       return lut2;
@@ -2314,8 +2344,10 @@ export class PigmentSet extends Array {
     console.log("max", min, "max", max);
 
     if (fillInEmptySpace) {
+      const doBlur = this.blurFilledInPixels;
+
       console.log("propegating into empty spaces. . .");
-      for (let step of this.fillInLutJob(lut, used, true, reporter)) {
+      for (let step of this.fillInLutJob(lut, used, true, doBlur, reporter)) {
         yield;
       }
     }
@@ -2354,6 +2386,79 @@ export class PigmentSet extends Array {
 
   * fillInLutJob(lut, used, isNormed = false, blur = true, reporter = function (msg, percent) {
   }) {
+    /*
+
+    on factor;
+
+    x1 := 0;
+    y1 := 0;
+    x2 := 1;
+    y2 := 0;
+
+    f1 := (x1 - px)**2 + (y1 - py)**2 - dis1;
+    f2 := (x2 - px)**2 + (y2 - py)**2 - dis2;
+
+    ff := solve({f1, f2}, {px, py});
+
+    on fort;
+    part(ff, 1, 1);
+    part(ff, 1, 2);
+    part(ff, 2, 1);
+    part(ff, 2, 2);
+    off fort;
+
+    */
+
+    let sqrt = Math.sqrt;
+
+    /*given two distance dis1 and dis2, derives a point
+    * source and returns two more distances*/
+    let geodesic_dist_ret = [0, 0];
+
+    function geodesic_dist(dis1, dis2) {
+      if (dis1 === dis2) {
+        let ret = geodesic_dist_ret;
+
+        ret[0] = dis1 + 1.0;
+        ret[1] = dis1 + 1.0;
+
+        return ret;
+      }
+
+      dis1 *= dis1;
+      dis2 *= dis2;
+
+      let val = 2.0*(dis2 + 1.0)*dis1 - (dis2 - 1.0)**2 - dis1**2;
+
+      val = Math.abs(val);
+      console.log("VAL", val);
+
+      let px2 = (-(dis2 - 1.0) + dis1)/2.0;
+      let py2 = sqrt(val)/2.0;
+
+      let x2 = 0;
+      let y2 = 1;
+      let x3 = 1;
+      let y3 = 1;
+
+      let dx2 = x2 - px2;
+      let dy2 = y2 - py2;
+      let dx3 = x3 - px2;
+      let dy3 = y3 - py2;
+
+      dy2 = dy2*dy2 < (y3 + py2)**2 ? y3 + py2 : dy2;
+      dy3 = dy3*dy3 < (y3 + py2)**2 ? y3 + py2 : dy3;
+
+      let ret = geodesic_dist_ret;
+
+      ret[0] = Math.sqrt(dx2*dx2 + dy2*dy2);
+      ret[1] = Math.sqrt(dx3*dx3 + dy3*dy3);
+
+      return ret;
+    }
+
+    window.geodesic_dist = geodesic_dist;
+
     const dimen = lut.dimen;
     let queue = [];
     let offs = [];
@@ -2404,6 +2509,95 @@ export class PigmentSet extends Array {
       used2[i] = used[i];
       mask[i] = !used[i];
     }
+
+    /*
+    const offs2 = [
+      [0, 0, 0],
+      [0, 1, 0],
+      [1, 1, 0],
+      [1, 0, 0],
+      [0, 0, 1],
+      [0, 1, 1],
+      [1, 1, 1],
+      [1, 0, 1],
+    ];
+
+    let doStep2 = (step) => {
+      let rect = [0, 0, 0, 0];
+      let recttmp = [0, 0, 0, 0];
+
+      function rotate(rect, temp, n) {
+        for (let i=0; i<rect.length; i++) {
+          temp[i] = rect[i];
+        }
+
+        for (let i=i; i<rect.length; i++) {
+          rect[i] = temp[(i + n) % rect.length];
+        }
+
+        return rect;
+      }
+
+      for (let i = 0; i < queue.length; i += 3) {
+        let x = queue[i], y = queue[i + 1], z = queue[i + 2];
+        let idx = dimen*dimen*z + dimen*y + x;
+
+        if (idx < 0 || idx >= lut.length) {
+          throw new Error("error!");
+        }
+
+        if (!used2[idx]) {
+          continue;
+        }
+
+        for (let off of offs2) {
+          let x2 = x + off[0];
+          let y2 = y + off[1];
+          let z2 = y + off[2];
+
+          x2 = Math.min(Math.max(x2, 0), dimen-1);
+          y2 = Math.min(Math.max(y2, 0), dimen-1);
+          z2 = Math.min(Math.max(z2, 0), dimen-1);
+        }
+      }
+
+      for (let i = 0; i < queue2.length; i += 3) {
+        let x = queue2[i], y = queue2[i + 1], z = queue2[i + 2];
+        let idx = dimen*dimen*z + dimen*y + x;
+
+        if (!used2[idx]) {
+          continue;
+        }
+
+        used[idx] = 1;
+
+        if (0) {
+          let mul = lut[idx*4] + lut[idx*4 + 1] + lut[idx*4 + 2] + lut[idx*4 + 3];
+
+          if (mul > 0.0) {
+            mul = 1.0/mul;
+          } else {
+            continue;
+          }
+
+          lut[idx*4] *= mul;
+          lut[idx*4 + 1] *= mul;
+          lut[idx*4 + 2] *= mul;
+          lut[idx*4 + 3] *= mul;
+
+          used[idx] = 1;
+          used2[idx] = 1;
+        }
+      }
+
+      let tmp = used;
+      used = used2;
+      used2 = tmp;
+
+      tmp = queue;
+      queue = queue2;
+      queue2 = tmp;
+    } //*/
 
     let doStep = (step) => {
       for (let i = 0; i < queue.length; i += 3) {
@@ -2541,7 +2735,7 @@ export class PigmentSet extends Array {
     }
 
     reporter("Blur", 0.5);
-    window.__blur3d(lut, mask, isNormed);
+    window.__blur3d(lut, mask, isNormed, this.blurRadius);
     reporter("Blur", 1.0);
 
     return;
@@ -2699,36 +2893,17 @@ window.__blur3d = function __blur3d(lut, mask, isNormed, n=4) {
       eval(s);
     }
   }
-
-  static defineAPI(api, st) {
-    st.bool("useCustomKs", "useCustomKs", "Custom Specular Ks");
-    st.float("k1", "k1", "K1").noUnits().range(0.0, 1.0).step(0.01);
-    st.float("k2", "k2", "K2").noUnits().range(0.0, 1.0).step(0.01);
-
-    st.list("", "pigments", {
-      get(api, list, key) {
-        return list[key];
-      },
-      getKey(api, list, obj) {
-        return list.indexOf(obj);
-      },
-      getStruct(api, list, key) {
-        return api.mapStruct(Pigment);
-      },
-      getIter(api, list) {
-        return list[Symbol.iterator]();
-      }
-    })
-  }
 }
 
 PigmentSet.STRUCT = `
 PigmentSet {
-  this         : array(Pigment);
-  renderCamera : Camera;
-  useCustomKs  : bool;
-  k1           : float;
-  k2           : float;
+  this               : array(Pigment);
+  renderCamera       : Camera;
+  useCustomKs        : bool;
+  k1                 : float;
+  k2                 : float;
+  blurFilledInPixels : bool;
+  blurRadius         : int;
 }
 `;
 simple.DataModel.register(PigmentSet);
