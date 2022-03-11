@@ -170,10 +170,14 @@ export class CanvasEditor extends simple.Editor {
 
     st.int("genDimen", "genDimen", "Size", "Base size of LUT")
       .noUnits()
-      .range(0, 256);
+      .range(0, 375);
 
     st.bool("blurFilledInPixels", "blurFilledInPixels", "Blur Filled In", "Blur filled in pixels");
-    st.int("blurRadius", "blurRadius", "Blur Radius").noUnits().range(2, 32);
+    st.bool("optimizeFilledIn", "optimizeFilledIn", "Opt Filled In", "Optimize filled in pixels to be more accurate");
+
+    st.int("optSteps", "optSteps", "Opt Steps").noUnits().range(1, 32).slideSpeed(1.5);
+
+    st.int("blurRadius", "blurRadius", "Blur Radius").noUnits().range(1, 32);
 
     st.bool("fillInLut", "fillInLut", "Fill in empty in LUT");
     st.bool("createReverseLut", "createReverseLut", "Inverse Too", "Also create inverse LUT");
@@ -204,6 +208,22 @@ export class CanvasEditor extends simple.Editor {
 
   set blurFilledInPixels(v) {
     this.ctx.pigments.blurFilledInPixels = v;
+  }
+
+  get optimizeFilledIn() {
+    return this.ctx.pigments.optimizeFilledIn;
+  }
+
+  set optimizeFilledIn(v) {
+    this.ctx.pigments.optimizeFilledIn = v;
+  }
+
+  get optSteps() {
+    return this.ctx.pigments.optSteps;
+  }
+
+  set optSteps(v) {
+    this.ctx.pigments.optSteps = v;
   }
 
   flagRedraw() {
@@ -637,6 +657,8 @@ export class CanvasEditor extends simple.Editor {
     panel.prop("fillInLut");
     panel.prop("blurFilledInPixels");
     panel.prop("blurRadius");
+    panel.prop("optimizeFilledIn");
+    panel.prop("optSteps");
     panel.prop("createReverseLut");
     panel.prop("upscaleGoal");
     panel.prop("lutQuality");

@@ -30,7 +30,7 @@ let lutImages = {};
 
 export function getLUTImage() {
   return platform.getPlatformAsync().then(() => {
-    let url = WIDE_GAMUT ? "lut_wide_256.png" : "lut_physical_2_258.png";
+    let url = WIDE_GAMUT ? "lut_wide_256.png" : "lut_physical_3_257.png";
     url = platform.platform.resolveURL("assets/" + url);
 
     let img;
@@ -628,8 +628,7 @@ export class Pigment {
     }
   }
 
-  static toRGB(pigments, ws) {
-    let steps = 32;
+  static toRGB(pigments, ws, steps=32) {
     let w1 = lightWaveLengths[0];
     let w2 = lightWaveLengths[1];
 
@@ -1130,7 +1129,9 @@ export class PigmentSet extends Array {
     super();
 
     this.blurFilledInPixels = true;
+    this.optimizeFilledIn = true;
     this.blurRadius = 6;
+    this.optSteps = 5;
 
     this.useCustomKs = false;
     this.k1 = REFL_K1;
@@ -1147,6 +1148,9 @@ export class PigmentSet extends Array {
 
   static defineAPI(api, st) {
     st.bool("blurFilledInPixels", "blurFilledInPixels", "Blur Filled In");
+    st.bool("optimizeFilledIn", "optimizeFilledIn", "Opt Filled In");
+    st.int("optSteps", "optSteps", "Opt Steps").noUnits().range(1, 32).slideSpeed(1.5);
+
     st.int("blurRadius", "blurRadius", "Blur Radius").noUnits().range(1, 32);
 
     st.bool("useCustomKs", "useCustomKs", "Custom Specular Ks");
@@ -1178,6 +1182,7 @@ export class PigmentSet extends Array {
 
     ret.blurFilledInPixels = this.blurFilledInPixels;
     ret.blurRadius = this.blurRadius;
+    ret.optimizeFilledIn = this.optimizeFilledIn;
 
     for (let item of this) {
       ret.push(item.copy());
@@ -2343,11 +2348,19 @@ export class PigmentSet extends Array {
 
     console.log("max", min, "max", max);
 
+    let usedcpy = new Uint16Array(used);
+
     if (fillInEmptySpace) {
       const doBlur = this.blurFilledInPixels;
 
       console.log("propegating into empty spaces. . .");
       for (let step of this.fillInLutJob(lut, used, true, doBlur, reporter)) {
+        yield;
+      }
+    }
+
+    if (this.optimizeFilledIn) {
+      for (let step of this.optimizeLutFillIn(lut, usedcpy, reporter)) {
         yield;
       }
     }
@@ -2367,6 +2380,121 @@ export class PigmentSet extends Array {
     }
 
     return lut;
+  }
+
+  findMapping(mix, color, tmp1, tmp2) {
+    let err;
+
+    for (let i=0; i<this.optSteps; i++) {
+      err = this.findMapping_solve(mix, color, tmp1, tmp2);
+    }
+
+    return err;
+  }
+
+  findMapping_solve(mix, color, tmp1, tmp2) {
+    let error = () => {
+      let rgb = Pigment.toRGB(this, mix, 8);
+
+      let dx = Math.abs(rgb[0]-color[0]);
+      let dy = Math.abs(rgb[1]-color[1]);
+      let dz = Math.abs(rgb[2]-color[2]);
+
+      let f;
+      //f = dx+dy+dz;
+      //f = Math.sqrt(dx**2 + dy**2 + dz**2);
+      f = dx**2 + dy**2 + dz**2;
+
+      return f;
+    }
+
+    let r1 = error();
+    let df = 0.00025;
+
+    let gs = tmp1;
+    let totg = 0.0;
+
+    for (let i=0; i<4; i++) {
+      let orig = mix[i];
+      mix[i] += df;
+
+      gs[i] = (error() - r1) / df;
+
+      mix[i] = orig;
+      totg += gs[i]*gs[i];
+    }
+
+    if (totg === 0.0) {
+      return;
+    }
+
+    r1 /= totg;
+
+    let tot = 0.0;
+
+    for (let i=0; i<4; i++) {
+      mix[i] += -r1*gs[i]*0.7;
+      mix[i] = Math.max(mix[i], 0.0);
+      tot += mix[i];
+    }
+
+    if (tot) {
+      tot = 1.0 / tot;
+      for (let i=0; i<4; i++) {
+        mix[i] *= tot;
+      }
+    }
+
+    return error();
+  }
+
+  * optimizeLutFillIn(lut, used, reporter) {
+    reporter("Optimize", 0.0);
+
+
+    let dimen = lut.dimen;
+    let mix = new Vector4();
+    let color = new Vector4();
+
+    color[3] = 1.0;
+
+    let tmp1 = new Vector4();
+    let tmp2 = new Vector4();
+
+    for (let z = 0; z < dimen; z++) {
+      for (let y = 0; y < dimen; y++) {
+        for (let x = 0; x < dimen; x++) {
+          let idx = z*dimen*dimen + y*dimen + x;
+
+          if (used[idx]) {
+            continue;
+          }
+
+          color[0] = x / (dimen - 1) + (Math.random()-0.5)/dimen;
+          color[1] = y / (dimen - 1) + (Math.random()-0.5)/dimen;
+          color[2] = z / (dimen - 1) + (Math.random()-0.5)/dimen;
+
+          let li = idx*LTOT;
+          mix[0] = lut[li];// + Math.random()*0.001;
+          mix[1] = lut[li+1];// + Math.random()*0.001;
+          mix[2] = lut[li+2];// + Math.random()*0.001;
+          mix[3] = 1.0 - mix[0] - mix[1] - mix[2];
+
+          let err = this.findMapping(mix, color, tmp1, tmp2);
+
+          lut[li] = mix[0];
+          lut[li+1] = mix[1];
+          lut[li+2] = mix[2];
+        }
+      }
+
+      if (z % 4 === 0) {
+        reporter("Optimize", (z + 1)/dimen);
+        yield;
+      }
+    }
+
+    reporter("Optimize", 1.0);
   }
 
   getUpscaledLevels(dimen, goal) {
@@ -2904,6 +3032,8 @@ PigmentSet {
   k2                 : float;
   blurFilledInPixels : bool;
   blurRadius         : int;
+  optimizeFilledIn   : bool;
+  optSteps           : int;
 }
 `;
 simple.DataModel.register(PigmentSet);

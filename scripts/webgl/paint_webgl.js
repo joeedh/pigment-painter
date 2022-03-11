@@ -305,7 +305,19 @@ export class WebGLPaint extends Canvas {
     this.drawmesh.addLayer(2, "co", data);
   }
 
-  drawIntern(queue) {
+  drawIntern() {
+    let time = util.time_ms();
+    while (util.time_ms() - time < 65) {
+      this.drawIntern2();
+    }
+
+    if (this.queue.length > 0) {
+      this.flagRedraw();
+      window.redraw_all();
+    }
+  }
+
+  drawIntern2() {
     this.animreq = undefined;
     //console.log("QUEUE", this.queue.length, this.queue);
 
@@ -314,7 +326,17 @@ export class WebGLPaint extends Canvas {
 
     this.checkWasmImage();
 
-    if (this.queue.length === 0) {
+    let queue = this.queue;
+    let qcount = 30;
+
+    if (queue.length > qcount) {
+      queue = queue.slice(0, qcount);
+      this.queue = this.queue.slice(qcount, this.queue.length);
+    } else {
+      this.queue = [];
+    }
+
+    if (queue.length === 0) {
       return;
     }
 
@@ -329,8 +351,8 @@ export class WebGLPaint extends Canvas {
     if (brush.tool === BrushTools.SMEAR) {
       this.fbos[0].bind(gl);
 
-      let x = ~~this.queue[0].x;
-      let y = this.fbos[0].size[1] - (~~this.queue[0].y);
+      let x = ~~queue[0].x;
+      let y = this.fbos[0].size[1] - (~~queue[0].y);
 
       let data = new Float32Array(4*4);
       gl.readPixels(x, y, 2, 2, gl.RGBA, gl.FLOAT, data);
@@ -396,7 +418,7 @@ export class WebGLPaint extends Canvas {
       overlap = 1;
     }
 
-    //overlap = this.queue.length;
+    //overlap = queue.length;
 
     let cubicvec = [new Vector2(), new Vector2(), new Vector2(), new Vector2()];
 
@@ -431,7 +453,7 @@ export class WebGLPaint extends Canvas {
     let color3 = new Vector4();
     let color4 = new Vector4();
 
-    for (let ds of this.queue) {
+    for (let ds of queue) {
       let x = ds.x, y = ds.y;
 
       if (!lastds) {
@@ -676,7 +698,7 @@ export class WebGLPaint extends Canvas {
 
     this.lastds = lastds;
 
-    this.queue.length = 0;
+    queue.length = 0;
 
     if (this.lutTex) {
       gl.bindTexture(gl.TEXTURE_2D, this.lutTex.texture);
@@ -1076,7 +1098,6 @@ export class WebGLPaint extends Canvas {
     }
 
     this.init(this.gl);
-    this.queue.length = 0;
   }
 
   beginStroke() {
