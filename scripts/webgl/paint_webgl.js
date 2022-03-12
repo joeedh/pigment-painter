@@ -912,7 +912,7 @@ export class WebGLPaint extends Canvas {
     mesh.swapAttributes("co", "uv");
 
     let d3 = 1.0;
-    let mesh2 = new GPUMesh(gl, gl.TRIANGLES, 6);
+    let mesh2 = new GPUMesh(gl, gl.TRIANGLES, 2);
     mesh2.addLayer(2, "co", [
       x, y, x, y + h, x + w, y + h,
       x, y, x + w, y + h, x + w, y
@@ -1056,7 +1056,7 @@ export class WebGLPaint extends Canvas {
     w = r.w;
     h = r.h;
 
-    let mesh = ret.mesh = new GPUMesh(gl, gl.TRIANGLES, 6);
+    let mesh = ret.mesh = new GPUMesh(gl, gl.TRIANGLES, 2);
     mesh.addLayer(2, "co", [
       0, 0, 0, 1, 1, 1,
       0, 0, 1, 1, 1, 0
