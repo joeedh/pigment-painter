@@ -6,27 +6,24 @@ export const thumbcache = new Map();
 export const palettes = [];
 window.palettes = palettes;
 
+export const defaultPalette = [[1, 1, 0, 1], [0.11067426517090517, 0.2945593189773162, 0.5118140424002338, 1],
+                                [0, 0.28849427889933654, 1, 1], [0.05132678546736713, 1, 0, 1],
+                                [0.5869640291012939, 0.06070299505939458, 0.3596941183337242, 1], [0.6, 0, 0.2, 1],
+                                [1, 1, 1, 1], [0, 0, 0, 1], [1, 0.36637297773783195, 0, 1],
+                                [0.18205117771768164, 0.678610198884452, 1, 1],
+                                [1, 0.18205117771768164, 0.9073479202048439, 1],
+                                [0.3263561402382396, 0.8343480257340842, 0, 1],
+                                [0.5068207843137255, 0.5372498039215687, 0, 1],
+                                [0, 0.870131593185563, 0.9852198616195037, 1],
+                                [0.9852198616195037, 0, 0.4969693107284223, 1],
+                                [0.45295638522164244, 0, 0.2284824244038374, 1]];
+
+
 export class Palette extends Array {
   constructor(name = "Palette") {
     super();
 
     this.name = name;
-  }
-
-  push(color) {
-    color = new Vector4(color);
-
-    for (let i=0; i<color.length; i++) {
-      if (isNaN(color[i])) {
-        color[i] = i === 3 ? 1.0 : 0.0;
-      }
-    }
-
-    super.push(color);
-  }
-
-  save() {
-    savePalette(this);
   }
 
   static defineAPI(api, st) {
@@ -59,6 +56,22 @@ export class Palette extends Array {
       }
     })
   }
+
+  push(color) {
+    color = new Vector4(color);
+
+    for (let i = 0; i < color.length; i++) {
+      if (isNaN(color[i])) {
+        color[i] = i === 3 ? 1.0 : 0.0;
+      }
+    }
+
+    super.push(color);
+  }
+
+  save() {
+    savePalette(this);
+  }
 }
 
 Palette.STRUCT = `
@@ -71,15 +84,18 @@ Palette {
 simple.DataModel.register(Palette);
 
 
-
 export function savePalettes() {
   for (let p of palettes) {
     savePalette(p);
   }
 }
 
+function getKey(p) {
+  return "_ppain_palette_" + p.name;
+}
+
 export function savePalette(p) {
-  let key = "_ppain_palette_" + p.name;
+  let key = getKey(p);
 
   //ensure palette is in cache list
   if (palettes.indexOf(p) < 0) {
@@ -140,10 +156,24 @@ function getDirectory() {
   let directory = localStorage["_ppaint_palettes"];
 
   if (!directory) {
-    directory = localStorage["_ppaint_palettes"] = "[]";
+    if (palettes.length === 0) {
+      let pal = new Palette();
+
+      for (let color of defaultPalette) {
+        pal.push(color);
+      }
+
+      palettes.push(pal);
+      savePalette(pal);
+
+      return getDirectory();
+    } else {
+      return [];
+    }
+  } else {
+    directory = JSON.parse(directory);
   }
 
-  directory = JSON.parse(directory);
   return directory;
 }
 
@@ -181,3 +211,5 @@ if (palettes.length === 0) {
   let pal = new Palette();
   savePalette(pal);
 }
+
+window._getPalette = getPalette;
