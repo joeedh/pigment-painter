@@ -86,7 +86,7 @@ export class Context {
   }
 
   static defineAPI(api, strct) {
-    strct.struct("canvas", "canvas", "Canvas", api.mapStruct(Canvas));
+    strct.struct("canvas", "canvas", "Canvas", api.mapStruct(WebGLPaint));
     strct.struct("canvasEditor", "canvasEditor", "Canvas Editor", api.mapStruct(CanvasEditor));
     strct.struct("brush", "brush", "Brush", api.mapStruct(Brush));
     strct.struct("colorTriplets", "colorTriplets", "Color Triplets", api.mapStruct(ColorTripletSet));

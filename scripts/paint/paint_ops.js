@@ -1,8 +1,10 @@
 import {
   util, Vector2, Vector3, Vector4, Matrix4, Quat,
   nstructjs, math, ToolOp, ToolProperty, ToolFlags,
-  PropFlags, PropTypes, IntProperty, BoolProperty, FloatProperty
+  PropFlags, PropTypes, IntProperty, BoolProperty, FloatProperty, UIBase
 } from '../path.ux/pathux.js';
+
+import {Stroker} from './stroker.js';
 
 import {
   cubic2, cubic, dcubic, dcubic2, kcubic2,
@@ -44,6 +46,240 @@ export class ResetCanvasOp extends ImageOp {
 ToolOp.register(ResetCanvasOp);
 
 export class BrushStrokeOp extends ImageOp {
+  constructor() {
+    super();
+    this.last = undefined;
+    this.cur = {};
+
+    this.s = 0;
+
+    this.rect = [new Vector2(), new Vector2()];
+
+    this.brush = undefined;
+    this.deviceInputs = undefined;
+
+    this.mpos = new Vector2();
+    this.lastMpos = new Vector2();
+  }
+
+  static tooldef() {
+    return {
+      uiname  : "Stroke",
+      toolpath: "brush.stroke",
+      inputs  : {
+        stroke  : new StrokeProperty(),
+        x       : new FloatProperty(),
+        y       : new FloatProperty(),
+        tiltX   : new FloatProperty(),
+        tiltY   : new FloatProperty(),
+        pressure: new FloatProperty(),
+        initial : new BoolProperty(),
+        dpi     : new FloatProperty(),
+      },
+      outputs : {},
+      is_modal: true
+    }
+  }
+
+  static invoke(ctx, args) {
+    let tool = super.invoke(ctx, args);
+
+    if (!("dpi" in args)) {
+      tool.inputs.dpi.setValue(UIBase.getDPI());
+    }
+
+    return tool;
+  }
+
+  on_pointercancel(e) {
+    console.error("POINTER CANCEL!");
+
+    let ctx = this.modal_ctx;
+    this.modalEnd(false);
+    ctx.toolstack.undo();
+
+    window.redraw_all();
+  }
+
+  modalStart(ctx) {
+    let ret = super.modalStart(ctx);
+
+    this.s = 0;
+
+    let {x, y, initial, pressure, tiltX, tiltY, dpi} = this.getInputs();
+
+    let brush = this.brush = ctx.canvas.brush;
+
+    ctx.canvas.beginStroke();
+
+    if (initial) {
+      let editor = ctx.canvasEditor;
+
+      [x, y] = editor.getLocalMouse(x, y);
+
+      let inputs = this.deviceInputs = this.getMappings(pressure, tiltX, tiltY, 0, 0);
+
+      this.last = {};
+      this.storeParams(this.last, brush, inputs);
+      this.storeParams(this.cur, brush, inputs);
+
+      this.lastMpos.loadXY(x, y);
+      this.mpos.loadXY(x, y);
+
+      let radius = brush.channels.evaluate("radius", inputs)*dpi;
+      let spacing = brush.channels.evaluate("spacing", inputs);
+      this.stroker = new Stroker(this.pointCallback.bind(this), true, x, y, radius, spacing);
+    } else {
+      this.stroker = new Stroker(this.pointCallback.bind(this), false);
+    }
+
+    this.stroker.lag = 1.5;
+
+    return ret;
+  }
+
+  pointCallback(x, y, dx, dy, t, dt, deltaS) {
+    dx *= deltaS/dt;
+    dy *= deltaS/dt;
+
+    let ds = new DotSample(x, y, dx, dy);
+
+    let brush = this.brush;
+    let continuous = brush.continuous;
+
+    let {last, cur} = this;
+
+    for (let k in last) {
+      let a = last[k];
+      let b = cur[k];
+
+      if (typeof a === "object") {
+        ds[k] = b;
+      } else {
+        ds[k] = a + (b - a)*t;
+
+        if (brush.channels.has(k)) {
+          ds[k] = brush.channels.get(k).evaluate(this.deviceInputs, ds[k]);
+        }
+      }
+    }
+
+    ds.angle *= Math.PI/180.0;
+
+    ds.t = this.s;
+    ds.deltaS = dt; /* again with the wrong name, S is supposed to be arc length,*/
+
+    //ds.angle = brush.channels.evaluate("angle", inputs)/180.0*Math.PI;
+
+    let th = Math.atan2(dy, dx) + Math.PI*0.5;
+    ds.followAngle = th;
+
+    if ((brush.flag & BrushFlags.FOLLOW) && !continuous) {
+      ds.angle += ds.followAngle;
+    }
+    //console.log(x, y, dx, dy, t, ds);
+
+    this.s += deltaS / (2.0 * ds.radius);
+
+    this.execDot(this.modal_ctx, ds);
+  }
+
+  getMappings(pressure, tiltX, tiltY, dx, dy) {
+    let tiltx = tiltX/180.0 + 0.5;
+    let tilty = tiltY/180.0 + 0.5;
+    let tilt = Math.sqrt((tiltx*2.0 - 1.0)**2 + (tilty*2.0 - 1.0))**2;
+
+    //tiltx = Math.cos(this.T)*0.5 + 0.5;
+
+    let tilt_len = Math.sqrt(tiltx*tiltx + tilty*tilty);
+    let tilt_angle = tilt_len < 0.05 ? 0.0 : (Math.atan2(tiltY, tiltX)/Math.PI/2.0 + 0.5);
+
+    let angle = Math.atan2(dy, dx)/Math.PI/2.0 + 0.5;
+
+    return {pressure, tiltx, tilty, tilt_angle, angle, tilt, distance: this.s*0.05};
+  }
+
+  storeParams(params, brush, inputs, s = this.s) {
+    params.pressure = inputs.pressure;
+    params.t = s; /* wrong name! t is for normalize subsegment position, s is arc length stroke distance!*/
+
+    for (let ch of brush.channels) {
+      params[ch.name] = ch.getValue();
+    }
+
+    params.radius *= this.inputs.dpi.getValue();
+  }
+
+  on_pointermove(e) {
+    let ctx = this.modal_ctx;
+    let editor = ctx.canvasEditor;
+    let brush = ctx.canvas.brush;
+    let [x, y] = editor.getLocalMouse(e.x, e.y);
+
+    let {dpi} = this.getInputs();
+
+    this.mpos.loadXY(x, y);
+
+    let dx = x - this.lastMpos[0];
+    let dy = y - this.lastMpos[1];
+
+    let inputs = this.deviceInputs = this.getMappings(e.pressure, e.tiltX, e.tiltY, dx, dy);
+
+    if (!this.last) {
+      this.last = {};
+      this.storeParams(this.last, brush, inputs);
+    }
+
+    this.storeParams(this.cur, brush, inputs);
+
+    let radius = brush.channels.evaluate("radius", inputs)*dpi;
+    let spacing = brush.channels.evaluate("spacing", inputs);
+    this.stroker.onInput(x, y, radius, spacing);
+
+    this.lastMpos.loadXY(x, y);
+    this.storeParams(this.last, brush, inputs);
+  }
+
+  execDot(ctx, ds) {
+    let radius = Math.ceil(ds.radius*this.inputs.dpi.getValue()*1.1);
+
+    let [min, max] = this.rect;
+
+    min.loadXY(ds.x, ds.y);
+    max.load(min);
+    min.addScalar(~~(-radius*1.25));
+    max.addScalar(~~(radius*1.25));
+
+    this.undoCheck(ctx, ds.x, ds.y, 2*radius);
+
+    for (let step of ctx.canvas.execDot(ds)) {
+    }
+
+    window.redraw_all(min, max);
+  }
+
+  finish() {
+    this.modalEnd(false);
+  }
+
+  exec(ctx) {
+    for (let ds of this.inputs.stroke) {
+      this.execDot(ctx, ds);
+    }
+  }
+
+  execPost(ctx) {
+  }
+
+  on_pointerup(e) {
+    console.log("mouse up in paint op!");
+
+    let ctx = this.modal_ctx;
+    this.finish();
+  }
+}
+
+export class _BrushStrokeOp extends ImageOp {
   constructor() {
     super();
 
@@ -113,6 +349,8 @@ export class BrushStrokeOp extends ImageOp {
     this.skipi = 0;
 
     ctx.canvas.beginStroke();
+
+    this.brush = ctx.canvas.brush;
 
     if (this.inputs.initial.getValue()) {
       let x = this.inputs.x.getValue();

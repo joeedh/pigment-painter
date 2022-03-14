@@ -582,9 +582,7 @@ export class BrushChannel {
     this.prop.setValue(v);
   }
 
-  evaluate(inputs = {}) {
-    let f = this.getValue();
-
+  evaluate(inputs = {}, f = this.getValue()) {
     if (typeof f === "object") {
       f = f.length === 3 ? ch_ret_vec3s.next().load(f) : ch_ret_vec4s.next().load(f);
 
@@ -802,7 +800,7 @@ export class BrushChannelSet extends Array {
     if (typeof name_or_ch === "object") {
       return this.nameMap.get(name_or_ch.name) === name_or_ch;
     } else {
-      return nameMap.has(name_or_ch);
+      return this.nameMap.has(name_or_ch);
     }
   }
 

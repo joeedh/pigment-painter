@@ -2,7 +2,7 @@ import {ShaderProgram, Texture, FBO, RenderBuffer} from './webgl.js';
 import {BrushAlpha, BrushMixModes, BrushTools, Canvas} from '../core/canvas.js';
 import {
   util, math, nstructjs, Vector2, Vector3,
-  Vector4, Matrix4, Quat, UIBase
+  Vector4, Matrix4, Quat, UIBase, simple
 } from '../path.ux/scripts/pathux.js';
 
 import {ImageSlots} from '../core/canvas.js';
@@ -194,6 +194,9 @@ export class WebGLPaint extends Canvas {
 
     super(dimen);
 
+    this.paintPigmentsDirect = false;
+    this.triLinearSample = false;
+
     this.meshCache = [];
     this.gpuMeshCache = new Array(8192);
 
@@ -222,6 +225,18 @@ export class WebGLPaint extends Canvas {
     this.drawIntern = this.drawIntern.bind(this);
   }
 
+  static defineAPI(api, st) {
+    super.defineAPI(api, st);
+
+    st.bool("paintPigmentsDirect", "paintPigmentsDirect", "Direct Mode", "Paint in pigments directly, without RGB")
+      .on('change', function () {
+        window.redraw_all();
+      });
+
+    st.bool("triLinearSample", "triLinearSample", "Trilinear", "Trilinear interpolatin")
+      .on('change', window.redraw_all);
+  }
+
   init(gl) {
     this.gl = gl;
 
@@ -239,7 +254,12 @@ export class WebGLPaint extends Canvas {
       fbo.create(gl);
 
       fbo.bind(gl);
-      gl.clearColor(1.0, 1.0, 1.0, 1.0);
+      if (this.paintPigmentsDirect) {
+        gl.clearColor(0.0, 0.0, 0.0, 1.0);
+      } else {
+        gl.clearColor(1.0, 1.0, 1.0, 1.0);
+      }
+
       //gl.clearBufferfv(gl.COLOR, gl.COLOR_ATTACHMENT0, new Float32Array([1.0, 1.0, 0.0, 1.0]));
       gl.clear(gl.COLOR_BUFFER_BIT);
       fbo.unbind(gl);
@@ -513,7 +533,7 @@ export class WebGLPaint extends Canvas {
         //lastp = [lx, ly];
         // /lastdv = [dx1, dy1];
 
-        let steps = 28;
+        let steps = 18;
         let dt = 1.0/(steps - 1), t = 0.0;
 
         let angle1 = lastds.angle, angle2 = ds.angle;
@@ -703,7 +723,7 @@ export class WebGLPaint extends Canvas {
     if (this.lutTex) {
       gl.bindTexture(gl.TEXTURE_2D, this.lutTex.texture);
 
-      if (TRILINEAR_LUT) {
+      if (TRILINEAR_LUT||this.triLinearSample) {
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
       } else {
@@ -714,7 +734,6 @@ export class WebGLPaint extends Canvas {
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     }
 
-    let lutRowSize = this.lutWidth/this.lutDimen;
 
     /*
     console.log({
@@ -723,21 +742,16 @@ export class WebGLPaint extends Canvas {
     });//*/
 
     let uniforms = {
-      size        : new Vector2([this.width, this.height]),
-      invSize     : new Vector2([1.0/this.width, 1.0/this.height]),
-      aspect      : this.width/this.height,
-      rgba        : this.fbos[1].texColor,
-      color       : this.brush.color,
-      lut         : this.lutTex,
-      lutDimen    : this.lutDimen,
-      lutSize     : new Vector2([this.lutWidth, this.lutHeight]),
-      lutInvSize  : new Vector2([1.0/this.lutWidth, 1.0/this.lutHeight]),
-      lutRowSize,
-      lutTexelSize: 1.0/this.lutWidth,
-      seed        : Math.random(),
-      smearPickup : this.smearColor
+      size       : new Vector2([this.width, this.height]),
+      invSize    : new Vector2([1.0/this.width, 1.0/this.height]),
+      aspect     : this.width/this.height,
+      rgba       : this.fbos[1].texColor,
+      color      : this.brush.color,
+      seed       : Math.random(),
+      smearPickup: this.smearColor
     };
 
+    this.setLutUniforms(uniforms);
 
     let getMesh = (tottri) => {
       let ring = this.gpuMeshCache[tottri];
@@ -775,7 +789,7 @@ export class WebGLPaint extends Canvas {
       defines.CONTINUOUS = null;
     }
 
-    if (TRILINEAR_LUT) {
+    if (TRILINEAR_LUT||this.triLinearSample) {
       defines.TRILINEAR_LUT = null;
     }
 
@@ -867,6 +881,19 @@ export class WebGLPaint extends Canvas {
     //fbo.unbind(gl);
   }
 
+  setLutUniforms(uniforms) {
+    let lutRowSize = this.lutWidth/this.lutDimen;
+
+    Object.assign(uniforms,{
+      lut         : this.lutTex,
+      lutDimen    : this.lutDimen,
+      lutSize     : new Vector2([this.lutWidth, this.lutHeight]),
+      lutInvSize  : new Vector2([1.0/this.lutWidth, 1.0/this.lutHeight]),
+      lutRowSize,
+      lutTexelSize: 1.0/this.lutWidth,
+    });
+  }
+
   draw(gl, fboIdx = 0) {
     if (this.fbos.length === 0) {
       this.init(gl);
@@ -882,6 +909,19 @@ export class WebGLPaint extends Canvas {
       size  : new Vector2([this.width, this.height]),
       aspect: this.width/this.height,
       rgba  : this.fbos[fboIdx].texColor
+    }
+
+    if (this.paintPigmentsDirect) {
+      if (!this.lutTex) {
+        return;
+      }
+
+      defines.PAINT_DIRECT = null;
+      this.setLutUniforms(uniforms);
+    }
+
+    if (this.triLinearSample) {
+      defines.TRILINEAR_LUT = true;
     }
 
     this.drawmesh.draw(gl, uniforms, defines, Shaders.BlitShader);
@@ -1146,6 +1186,8 @@ export class WebGLPaint extends Canvas {
 }
 
 WebGLPaint.STRUCT = nstructjs.inherit(WebGLPaint, Canvas) + `
+  paintPigmentsDirect : bool;
+  triLinearSample     : bool;
 }
 `
-nstructjs.register(WebGLPaint);
+simple.DataModel.register(WebGLPaint);

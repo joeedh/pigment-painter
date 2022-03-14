@@ -168,62 +168,35 @@ export class CanvasEditor extends simple.Editor {
   static defineAPI(api, st) {
     st.bool("drawParam", "drawParam", "Draw Param");
 
-    st.int("genDimen", "genDimen", "Size", "Base size of LUT")
-      .noUnits()
-      .range(0, 375);
+    if (0) {
+      st.int("genDimen", "genDimen", "Size", "Base size of LUT")
+        .noUnits()
+        .range(0, 375);
 
-    st.bool("blurFilledInPixels", "blurFilledInPixels", "Blur Filled In", "Blur filled in pixels");
-    st.bool("optimizeFilledIn", "optimizeFilledIn", "Opt Filled In", "Optimize filled in pixels to be more accurate");
+      st.bool("blurFilledInPixels", "blurFilledInPixels", "Blur Filled In", "Blur filled in pixels");
+      st.bool("optimizeFilledIn", "optimizeFilledIn", "Opt Filled In", "Optimize filled in pixels to be more accurate");
 
-    st.int("optSteps", "optSteps", "Opt Steps").noUnits().range(1, 32).slideSpeed(1.5);
+      st.float("colorScale", "colorScale", "Output Scale", "Unphysically scale pigment colors in LUT generation")
+        .noUnits().range(0.0, 5.0);
 
-    st.int("blurRadius", "blurRadius", "Blur Radius").noUnits().range(1, 32);
+      st.int("optSteps", "optSteps", "Opt Steps").noUnits().range(1, 32).slideSpeed(1.5);
 
-    st.bool("fillInLut", "fillInLut", "Fill in empty in LUT");
-    st.bool("createReverseLut", "createReverseLut", "Inverse Too", "Also create inverse LUT");
+      st.int("blurRadius", "blurRadius", "Blur Radius").noUnits().range(1, 32);
 
-    st.int("upscaleGoal", "upscaleGoal", "Upscale", "Upscale to nearest power of 2 that is greater then or equal to this number")
-      .noUnits()
-      .range(0, 512);
+      st.bool("fillInLut", "fillInLut", "Fill in empty in LUT");
+      st.bool("createReverseLut", "createReverseLut", "Inverse Too", "Also create inverse LUT");
 
-    st.float("lutQuality", "lutQuality", "Quality", "Quality of LUT")
-      .noUnits()
-      .range(0.01, 25.0)
-      .step(0.2);
+      st.int("upscaleGoal", "upscaleGoal", "Upscale", "Upscale to nearest power of 2 that is greater then or equal to this number")
+        .noUnits()
+        .range(0, 512);
+
+      st.float("lutQuality", "lutQuality", "Quality", "Quality of LUT")
+        .noUnits()
+        .range(0.01, 25.0)
+        .step(0.2);
+    }
 
     return st;
-  }
-
-  get blurRadius() {
-    return this.ctx.pigments.blurRadius;
-  }
-
-  set blurRadius(v) {
-    this.ctx.pigments.blurRadius = v;
-  }
-
-  get blurFilledInPixels() {
-    return this.ctx.pigments.blurFilledInPixels;
-  }
-
-  set blurFilledInPixels(v) {
-    this.ctx.pigments.blurFilledInPixels = v;
-  }
-
-  get optimizeFilledIn() {
-    return this.ctx.pigments.optimizeFilledIn;
-  }
-
-  set optimizeFilledIn(v) {
-    this.ctx.pigments.optimizeFilledIn = v;
-  }
-
-  get optSteps() {
-    return this.ctx.pigments.optSteps;
-  }
-
-  set optSteps(v) {
-    this.ctx.pigments.optSteps = v;
   }
 
   flagRedraw() {
@@ -484,6 +457,8 @@ export class CanvasEditor extends simple.Editor {
     tab.prop("canvas.brush.flag[FOLLOW]");
     tab.prop("canvas.brush.flag[ACCUMULATE]");
     tab.prop("canvas.brush.mixMode");
+    tab.prop("canvas.paintPigmentsDirect");
+    tab.prop("canvas.triLinearSample");
 
     let names = ["C", "M", "Y", "K"];
 
@@ -651,7 +626,7 @@ export class CanvasEditor extends simple.Editor {
     panel = tab.panel("Create LUT");
     panel.useIcons(false);
 
-    panel.dataPrefix = "canvasEditor";
+    panel.dataPrefix = "pigments";
 
     panel.prop("genDimen");
     panel.prop("fillInLut");
@@ -662,6 +637,7 @@ export class CanvasEditor extends simple.Editor {
     panel.prop("createReverseLut");
     panel.prop("upscaleGoal");
     panel.prop("lutQuality");
+    panel.prop("colorScale");
 
     let panel2 = tab.panel("Specular");
 
@@ -702,7 +678,9 @@ export class CanvasEditor extends simple.Editor {
 
       let this2 = this;
       function* Job() {
-        let gen1 = this2.ctx.canvas.pigments.makeLUTsJob(this2.genDimen, this2.fillInLut, this2.upscaleGoal, this2.lutQuality, !this2.createReverseLut, reporter);
+        let ps = this2.ctx.canvas.pigments;
+
+        let gen1 = this2.ctx.canvas.pigments.makeLUTsJob(ps.genDimen, ps.doFillInLut, ps.upscaleGoal, ps.lutQuality, !ps.createReverseLut, reporter);
 
         for (let step of gen1) {
           yield;
@@ -859,10 +837,5 @@ export class CanvasEditor extends simple.Editor {
   }
 }
 CanvasEditor.STRUCT = nstructjs.inherit(CanvasEditor, simple.Editor) + `
-  genDimen         : int;
-  fillInLut        : bool;
-  createReverseLut : bool;
-  upscaleGoal      : int;
-  lutQuality       : float;
 }`;
 simple.Editor.register(CanvasEditor);

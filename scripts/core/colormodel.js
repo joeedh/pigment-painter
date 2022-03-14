@@ -299,6 +299,8 @@ export class Pigment {
   constructor() {
     this.useWavelets = false;
 
+    this.pigmentSet = undefined;
+
     this.updateGen = 0;
 
     this.k_wavelets = [];
@@ -672,7 +674,7 @@ export class Pigment {
     ret[3] = 0.0;
 
     //if (WIDE_GAMUT) {
-    ret.mulScalar(COLOR_SCALE);
+    ret.mulScalar(COLOR_SCALE*pigments.colorScale);
     //}
 
     return ret;
@@ -1100,8 +1102,10 @@ export class Pigment {
   }
 
   toRGB() {
-    let arr = arrtmp1;
-    arr[0] = this;
+    let arr = new PigmentSet();
+
+    arr.push(this);
+    arr.colorScale = this.pigmentSet.colorScale;
 
     return Pigment.toRGB(arr);
   }
@@ -1128,10 +1132,17 @@ export class PigmentSet extends Array {
   constructor() {
     super();
 
+    this.colorScale = 1.0;
+
+    this.genDimen = 64;
     this.blurFilledInPixels = true;
     this.optimizeFilledIn = true;
     this.blurRadius = 6;
     this.optSteps = 5;
+    this.doFillInLut = true;
+    this.createReverseLut = true;
+    this.lutQuality = 0.5;
+    this.upscaleGoal = 128;
 
     this.useCustomKs = false;
     this.k1 = REFL_K1;
@@ -1147,15 +1158,41 @@ export class PigmentSet extends Array {
   }
 
   static defineAPI(api, st) {
+    st.int("genDimen", "genDimen", "Size", "Base size of LUT")
+      .noUnits()
+      .range(0, 375)
+      .slideSpeed(3.0);
+
     st.bool("blurFilledInPixels", "blurFilledInPixels", "Blur Filled In");
     st.bool("optimizeFilledIn", "optimizeFilledIn", "Opt Filled In");
     st.int("optSteps", "optSteps", "Opt Steps").noUnits().range(1, 32).slideSpeed(1.5);
+
+    st.bool("doFillInLut", "fillInLut", "Fill in empty in LUT");
+    st.bool("createReverseLut", "createReverseLut", "Inverse Too", "Also create inverse LUT");
+
+    st.int("upscaleGoal", "upscaleGoal", "Upscale", "Upscale to nearest power of 2 that is greater then or equal to this number")
+      .noUnits()
+      .range(0, 512);
+
+    st.float("lutQuality", "lutQuality", "Quality", "Quality of LUT")
+      .noUnits()
+      .range(0.01, 25.0)
+      .step(0.2);
 
     st.int("blurRadius", "blurRadius", "Blur Radius").noUnits().range(1, 32);
 
     st.bool("useCustomKs", "useCustomKs", "Custom Specular Ks");
     st.float("k1", "k1", "K1").noUnits().range(0.0, 1.0).step(0.01);
     st.float("k2", "k2", "K2").noUnits().range(0.0, 1.0).step(0.01);
+
+    st.float("colorScale", "colorScale", "Output Scale", "Unphysically scale pigment colors in LUT generation")
+      .noUnits()
+      .range(0.0, 5.0)
+      .on('change', function() {
+        for (let p of this.dataref) {
+          p.updateGen++;
+        }
+      });
 
     st.list("", "pigments", {
       get(api, list, key) {
@@ -1173,8 +1210,17 @@ export class PigmentSet extends Array {
     })
   }
 
+  push(p) {
+    super.push(p);
+    p.pigmentSet = this;
+  }
+
   loadSTRUCT(reader) {
     reader(this);
+
+    for (let p of this) {
+      p.pigmentSet = this;
+    }
   }
 
   copy() {
@@ -1183,6 +1229,7 @@ export class PigmentSet extends Array {
     ret.blurFilledInPixels = this.blurFilledInPixels;
     ret.blurRadius = this.blurRadius;
     ret.optimizeFilledIn = this.optimizeFilledIn;
+    ret.colorScale = this.colorScale;
 
     for (let item of this) {
       ret.push(item.copy());
@@ -3034,6 +3081,13 @@ PigmentSet {
   blurRadius         : int;
   optimizeFilledIn   : bool;
   optSteps           : int;
+  colorScale         : float;
+  
+  genDimen           : int;
+  fillInLut          : bool;
+  createReverseLut   : bool;
+  upscaleGoal        : int;
+  lutQuality         : float;
 }
 `;
 simple.DataModel.register(PigmentSet);

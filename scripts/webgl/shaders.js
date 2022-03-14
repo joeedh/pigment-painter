@@ -1,5 +1,100 @@
 import {ShaderProgram} from './webgl.js';
 
+export const LutCode = {
+  pre : `
+uniform sampler2D lut;
+uniform vec2 lutSize;
+uniform vec2 lutInvSize;
+uniform float lutDimen;
+uniform float lutRowSize;
+uniform float lutTexelSize;
+  `,
+  code : `
+#ifdef TRILINEAR_LUT
+#define DITHER_FAC 0.002
+#else
+#define DITHER_FAC 0.004;
+#endif
+
+vec3 sampleLutIntern(vec3 p, float zoff) {
+  p.r = min(max(p.r, 0.0), 1.0)*(1.0 - lutTexelSize);
+  p.g = min(max(p.g, 0.0), 1.0)*(1.0 - lutTexelSize);
+  p.b = min(max(p.b, 0.0), 1.0)*(1.0 - lutTexelSize);
+  
+  float x = p.r * lutDimen;
+  float y = p.g * lutDimen;
+  float z = p.b * lutDimen;
+  
+#ifndef TRILINEAR_LUT
+  x = floor(x);
+  y = floor(y);
+#endif
+
+  z = floor(z);
+
+  z += zoff;
+  
+#ifdef TRILINEAR_LUT
+  //z = min(max(z, 0.0), lutDimen - 1.0);
+#endif
+
+  float col = mod(z, lutRowSize) * lutDimen;
+  float row = floor(z/lutRowSize + 0.00) * lutDimen;
+  
+  float u = (x + col) / (lutSize[0]-1.0);
+  float v = (y + row) / (lutSize[1]-1.0);
+  
+  //float ff = -lutTexelSize*0.005;
+  //u += ff;
+  //v += ff;
+  
+  vec4 r = texture(lut, vec2(u, v));
+  
+  return vec3(r.r, r.b, r.g);
+}
+
+vec3 sampleLut(vec3 p, float zoff) {
+#ifdef TRILINEAR_LUT
+  vec3 a = sampleLutIntern(p, zoff);
+  vec3 b = sampleLutIntern(p, zoff + 1.00001);
+  
+  float t = fract(p.z * (lutDimen));
+  
+  return mix(a, b, t);
+#else
+  return sampleLutIntern(p, zoff);
+#endif
+}
+
+vec4 colorToPigment(vec3 rgb) {
+  vec4 c = vec4(sampleLut(rgb, 0.0), 0.0);
+  c[3] = 1.0 - c[0] - c[1] - c[2];
+  
+  float tot = c[0]+c[1]+c[2]+c[3];
+  if (tot > 0.0001) {
+    c *= 1.0 / tot;
+  }
+  
+  return c;
+}
+
+vec3 pigmentToColor(vec4 pigment) {
+  //about 1/255
+  float d = 0.002;
+  
+#if 0
+  pigment.r += hash(vCo, 0.2342)*DITHER_FAC;
+  pigment.g += hash(vCo, 0.7342)*DITHER_FAC;
+  pigment.b += hash(vCo, 1.5342)*DITHER_FAC; 
+#endif
+
+  vec3 r = sampleLut(pigment.rgb, lutDimen + 0.0001);
+
+  return r;
+}
+  `
+};
+
 /* blit: uses vUv for texture lookup */
 export let BlitShader = {
   vertex    : `#version 300 es
@@ -28,6 +123,10 @@ precision highp float;
 uniform vec2 size;
 uniform float aspect;
 uniform sampler2D rgba;
+
+#ifdef PAINT_DIRECT
+${LutCode.pre}
+#endif
 
 in vec2 vCo;
 in vec2 vUv;
@@ -59,8 +158,21 @@ vec3 ungamma(vec3 p) {
   return vec3(ungamma(p.x), ungamma(p.y), ungamma(p.z));
 }
 
+
+#ifdef PAINT_DIRECT
+${LutCode.code}
+#endif
+
 void main() {
   vec4 c = texture(rgba, vUv);
+  
+  #ifdef PAINT_DIRECT
+  vec4 p = vec4(c.rgb, 1.0 - c.r - c.g - c.b);
+  p /= (p.r + p.g + p.b + p.a + 0.00001);
+  
+  c.rgb = pigmentToColor(p);
+  c.a = 1.0;
+  #endif
   
   //c[0] = gamma(c[0]);
   //c[1] = gamma(c[1]);
@@ -323,14 +435,10 @@ uniform float pass;
 
 uniform vec2 invSize;
 
-uniform sampler2D lut;
-uniform vec2 lutSize;
-uniform vec2 lutInvSize;
-uniform float lutDimen;
-uniform float lutRowSize;
-uniform float lutTexelSize;
 uniform float seed;
 uniform vec4 smearPickup;
+
+${LutCode.pre}
 
 uniform sampler2D brushAlpha;
 uniform vec2 alphaSize;
@@ -566,88 +674,7 @@ vec3 hsv_to_rgb(float h, float s, float v) {
 
 #if MIX_MODE == 0
 
-#ifdef TRILINEAR_LUT
-#define DITHER_FAC 0.002
-#else
-#define DITHER_FAC 0.004;
-#endif
-
-vec3 sampleLutIntern(vec3 p, float zoff) {
-  p.r = min(max(p.r, 0.0), 1.0)*(1.0 - lutTexelSize);
-  p.g = min(max(p.g, 0.0), 1.0)*(1.0 - lutTexelSize);
-  p.b = min(max(p.b, 0.0), 1.0)*(1.0 - lutTexelSize);
-  
-  float x = p.r * lutDimen;
-  float y = p.g * lutDimen;
-  float z = p.b * lutDimen;
-  
-#ifndef TRILINEAR_LUT
-  x = floor(x);
-  y = floor(y);
-#endif
-
-  z = floor(z);
-
-  z += zoff;
-  
-#ifdef TRILINEAR_LUT
-  z = min(max(z, 0.0), lutDimen - 1.0);
-#endif
-
-  float col = mod(z, lutRowSize) * lutDimen;
-  float row = floor(z/lutRowSize + 0.00) * lutDimen;
-  
-  float u = (x + col) / (lutSize[0]-1.0);
-  float v = (y + row) / (lutSize[1]-1.0);
-  
-  //float ff = -lutTexelSize*0.005;
-  //u += ff;
-  //v += ff;
-  
-  vec4 r = texture(lut, vec2(u, v));
-  
-  return vec3(r.r, r.b, r.g);
-}
-
-vec3 sampleLut(vec3 p, float zoff) {
-#ifdef TRILINEAR_LUT
-  vec3 a = sampleLutIntern(p, zoff);
-  vec3 b = sampleLutIntern(p, zoff + 1.0);
-  
-  float t = fract(p.z * (lutDimen - 1.0));
-  
-  return mix(a, b, t);
-#else
-  return sampleLutIntern(p, zoff);
-#endif
-}
-
-vec4 colorToPigment(vec3 rgb) {
-  vec4 c = vec4(sampleLut(rgb, 0.0), 0.0);
-  c[3] = 1.0 - c[0] - c[1] - c[2];
-  
-  float tot = c[0]+c[1]+c[2]+c[3];
-  if (tot > 0.0001) {
-    c *= 1.0 / tot;
-  }
-  
-  return c;
-}
-
-vec3 pigmentToColor(vec4 pigment) {
-  //about 1/255
-  float d = 0.002;
-  
-#if 0
-  pigment.r += hash(vCo, 0.2342)*DITHER_FAC;
-  pigment.g += hash(vCo, 0.7342)*DITHER_FAC;
-  pigment.b += hash(vCo, 1.5342)*DITHER_FAC; 
-#endif
-
-  vec3 r = sampleLut(pigment.rgb, lutDimen + 0.0001);
-
-  return r;
-}
+${LutCode.code}
 
 float clamp255(float f) {
   f = min(max(f, 0.0), 1.0);
