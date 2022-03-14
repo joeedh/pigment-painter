@@ -133,7 +133,7 @@ export class BrushStrokeOp extends ImageOp {
       this.stroker = new Stroker(this.pointCallback.bind(this), false);
     }
 
-    this.stroker.lag = 1.5;
+    this.stroker.lag = 1.0;
 
     return ret;
   }

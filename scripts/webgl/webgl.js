@@ -356,6 +356,50 @@ export function init_webgl(canvas, params, webgl2) {
     webgl2 = false;
   }
 
+  let cache = {
+    viewport : [0,0,0,0],
+    scissor : [0,0,0,0],
+  }
+
+  let getparam = gl.getParameter;
+  let viewport = gl.viewport;
+  let scissor = gl.scissor;
+
+  cache.viewport = new Float64Array(gl.getParameter(gl.VIEWPORT));
+  cache.scissor = new Float64Array(gl.getParameter(gl.SCISSOR_BOX));
+
+  gl.getParameter = function(param) {
+    if (param === gl.VIEWPORT) {
+      return new Float64Array(cache.viewport);
+    } else if (param === gl.SCISSOR_BOX) {
+      return Float64Array(cache.scissor);
+    } else {
+      return getparam.apply(this, arguments);
+    }
+  }
+
+  gl.scissor = function(x, y, w, h) {
+    let b = cache.scissor;
+
+    b[0] = x;
+    b[1] = y;
+    b[2] = w;
+    b[3] = h;
+
+    scissor.apply(this, arguments);
+  }
+
+  gl.viewport = function(x, y, w, h) {
+    let b = cache.viewport;
+
+    b[0] = x;
+    b[1] = y;
+    b[2] = w;
+    b[3] = h;
+
+    viewport.apply(this, arguments);
+  }
+
   gl.haveWebGL2 = !!webgl2;
 
   if (webgl2) {
@@ -1269,6 +1313,10 @@ export class Texture {
   }
 
   texParameteri(gl, target, param, value) {
+    if (this._params[param] === value) {
+      return;
+    }
+
     this._params[param] = value;
 
     gl.texParameteri(target, param, value);
