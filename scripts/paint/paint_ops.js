@@ -14,6 +14,7 @@ import {
 import {StrokeProperty, ImageOp, getPressure} from './paint.js';
 import {BrushFlags, DotSample} from '../core/canvas.js';
 import {Icons} from '../core/icon_enum.js';
+import {hsv_to_rgb} from '../core/color.js';
 
 export class ResetCanvasOp extends ImageOp {
   constructor() {
@@ -138,6 +139,12 @@ export class BrushStrokeOp extends ImageOp {
     return ret;
   }
 
+  resetStroke() {
+    let ctx = this.modal_ctx;
+    ctx.canvas.beginStroke();
+    this.stroker = new Stroker(this.pointCallback.bind(this), false);
+  }
+
   pointCallback(x, y, dx, dy, t, dt, deltaS) {
     dx *= deltaS/dt;
     dy *= deltaS/dt;
@@ -164,6 +171,14 @@ export class BrushStrokeOp extends ImageOp {
       }
     }
 
+    let rdx = 0.25*ds.random*(Math.random() - 0.5)*ds.radius*2.0;
+    let rdy = 0.25*ds.random*(Math.random() - 0.5)*ds.radius*2.0;
+
+    ds.x += rdx;
+    ds.y += rdy;
+    ds.dx += rdx;
+    ds.dy += rdy;
+
     ds.angle *= Math.PI/180.0;
 
     ds.t = this.s;
@@ -179,7 +194,7 @@ export class BrushStrokeOp extends ImageOp {
     }
     //console.log(x, y, dx, dy, t, ds);
 
-    this.s += deltaS / (2.0 * ds.radius);
+    this.s += deltaS/(2.0*ds.radius);
 
     this.execDot(this.modal_ctx, ds);
   }
@@ -699,3 +714,149 @@ export class _BrushStrokeOp extends ImageOp {
 }
 
 ToolOp.register(BrushStrokeOp);
+
+export class CanvasTestOp extends BrushStrokeOp {
+  constructor() {
+    super();
+
+    this.timer = undefined;
+    this.iter = undefined;
+  }
+
+  static tooldef() {
+    return {
+      uiname  : "Test",
+      toolpath: "canvas.test",
+      is_modal: true,
+      inputs  : ToolOp.inherit({}),
+      outputs : {},
+    }
+  }
+
+  modalStart(ctx) {
+    let ret = super.modalStart(ctx);
+
+    this.iter = this.task();
+
+    this.timer = window.setInterval(() => {
+      let time = util.time_ms();
+      while (util.time_ms() - time < 10) {
+        let next;
+
+        try {
+          next = this.iter.next();
+        } catch (error) {
+          util.print_stack(error);
+          this.modalEnd();
+
+          return;
+        }
+
+        if (next.done) {
+          this.modalEnd();
+        }
+      }
+
+      window.redraw_all();
+    }, 35);
+
+    return ret;
+  }
+
+  modalEnd() {
+    if (this.timer !== undefined) {
+      window.clearInterval(this.timer);
+    }
+
+    this.timer = undefined;
+
+    return super.modalEnd();
+  }
+
+  on_pointermove(e, enabled = false) {
+    if (enabled) {
+      //console.log(e.x, e.y, e.pressure, e);
+      return super.on_pointermove(e);
+    }
+  }
+
+  * task() {
+    let ctx = this.modal_ctx;
+    let brush = this.brush;
+    let r = brush.radius*UIBase.getDPI()*1.5;
+    let canvas = ctx.canvas;
+    let ed = ctx.canvasEditor;
+    let gen = ed.drawGen;
+
+    let cols = ~~(canvas.width/r);
+
+    console.log("cols:", cols);
+
+    let evt = {
+      pressure: 1.0,
+      tiltX   : 1.0,
+      tiltY   : 1.0,
+      type    : "mouse",
+      button  : 0,
+      x       : 0,
+      y       : 0,
+      force   : 1.0,
+    };
+
+    let startColor = new Vector4(brush.color);
+    let dpi = window.devicePixelRatio;
+
+    for (let i=0; i<2; i++) {
+      let c = startColor;
+      let hsv = new Vector3(rgb_to_hsv(c[0], c[1], c[2]));
+      hsv[0] = i ? -0.2 : -0.2;
+
+      let dh = 2.0 / cols;
+
+      for (let x = 1; x < cols; x++, hsv[0] += dh) {
+        hsv[0] = Math.fract(hsv[0]);
+
+        let color = hsv_to_rgb(hsv[0], hsv[1], hsv[2]);
+        brush.color.loadXYZ(color[0], color[1], color[2]);
+
+        let u = x/(cols - 1);
+        this.resetStroke();
+
+        for (let y = 0; y < cols; y++) {
+          let v = y/(cols - 1);
+
+          evt.x = u*canvas.width;
+          evt.y = v*canvas.height;
+
+          if (i) {
+            let tmp = evt.x;
+            evt.x = evt.y;
+            evt.y = tmp;
+          }
+
+          this.on_pointermove(evt, true);
+
+          if (y%55 === 0) {
+            yield;
+          }
+        }
+
+        for (let i=0; i<2; i++) {
+          window.redraw_all();
+
+          while (gen === ed.drawGen) {
+            yield;
+          }
+        }
+
+        gen = ed.drawGen;
+        yield;
+      }
+    }
+
+    brush.color.load(startColor);
+  }
+}
+
+ToolOp.register(CanvasTestOp);
+

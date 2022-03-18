@@ -123,6 +123,7 @@ export const pigmentKS = [
   }
 ];
 
+export const pigmentHermite = [];
 
 export function getPigment(name) {
   for (let pigment of pigmentKS) {

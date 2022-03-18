@@ -8,8 +8,9 @@ import {
 import {ImageSlots} from '../core/canvas.js';
 import {GPUMesh} from './gpumesh.js';
 import {Shaders} from './shaders.js';
-import {TRILINEAR_LUT} from '../core/colormodel.js';
+import {LINEAR_LUT, TRILINEAR_LUT} from '../core/colormodel.js';
 import {cubic2, dcubic2} from '../core/bezier.js';
+import {linear_to_rgb, rgb_to_linear} from '../core/color.js';
 
 export const FBOSlots = {
   MAIN1: 0,
@@ -370,6 +371,8 @@ export class WebGLPaint extends Canvas {
     let brush = this.brush;
     let continuous = brush.continuous;
 
+    gl.disable(gl.SCISSOR_TEST);
+
     let alpha = BrushAlpha.getAlphaFromId(brush.mask);
 
     let width = this.width, height = this.height;
@@ -729,7 +732,7 @@ export class WebGLPaint extends Canvas {
     if (this.lutTex) {
       gl.bindTexture(gl.TEXTURE_2D, this.lutTex.texture);
 
-      if (TRILINEAR_LUT||this.triLinearSample) {
+      if (0) { //TRILINEAR_LUT || this.triLinearSample) {
         this.lutTex.texParameteri(gl, gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
         this.lutTex.texParameteri(gl, gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
       } else {
@@ -796,8 +799,12 @@ export class WebGLPaint extends Canvas {
       defines.CONTINUOUS = null;
     }
 
-    if (TRILINEAR_LUT||this.triLinearSample) {
+    if (TRILINEAR_LUT || this.triLinearSample) {
       defines.TRILINEAR_LUT = null;
+    }
+
+    if (LINEAR_LUT) {
+      defines.LINEAR_LUT = null;
     }
 
     defines.TOOL = this.brush.tool;
@@ -847,6 +854,8 @@ export class WebGLPaint extends Canvas {
         uniforms.rgba = this.fbos[1].texColor;
         fbo = this.fbos[0];
         fbo.bind(gl);
+        gl.disable(gl.SCISSOR_TEST);
+        gl.disable(gl.DEPTH_TEST);
         m.mesh.draw(gl, uniforms, defines, Shaders.PaintShader);
         fbo.unbind(gl);
 
@@ -857,6 +866,8 @@ export class WebGLPaint extends Canvas {
         uniforms.rgba = this.fbos[0].texColor;
         fbo = this.fbos[1];
         fbo.bind(gl);
+        gl.disable(gl.SCISSOR_TEST);
+        gl.disable(gl.DEPTH_TEST);
         //this.draw(gl, 0);
         m.mesh.draw(gl, uniforms, defines, Shaders.BlitShader2);
         fbo.unbind(gl);
@@ -891,7 +902,7 @@ export class WebGLPaint extends Canvas {
   setLutUniforms(uniforms) {
     let lutRowSize = this.lutWidth/this.lutDimen;
 
-    Object.assign(uniforms,{
+    Object.assign(uniforms, {
       lut         : this.lutTex,
       lutDimen    : this.lutDimen,
       lutSize     : new Vector2([this.lutWidth, this.lutHeight]),
@@ -901,7 +912,7 @@ export class WebGLPaint extends Canvas {
     });
   }
 
-  draw(gl, fboIdx = 0) {
+  draw(gl, editor, fboIdx = 0) {
     if (this.fbos.length === 0) {
       this.init(gl);
     }
@@ -912,10 +923,21 @@ export class WebGLPaint extends Canvas {
 
     let defines = {};
 
+    let drawMatrix = new Matrix4(editor.drawMatrix);
+    let smat = new Matrix4();
+    smat.scale(this.width, this.height);
+
+    let tmat = new Matrix4();
+    tmat.translate(0.0, (editor.glSize[1]-this.height)/editor.glSize[1]/2.0,0, 0,0);
+
+    drawMatrix.multiply(smat);
+    drawMatrix.multiply(tmat);
+
     let uniforms = {
       size  : new Vector2([this.width, this.height]),
       aspect: this.width/this.height,
-      rgba  : this.fbos[fboIdx].texColor
+      rgba  : this.fbos[fboIdx].texColor,
+      drawMatrix,
     }
 
     if (this.paintPigmentsDirect) {
@@ -995,6 +1017,17 @@ export class WebGLPaint extends Canvas {
   putImageData(image) {
     this.width = image.width;
     this.height = image.height;
+
+    let idata = image.data;
+
+    /* why do I have to do a gamma conversion here? */
+    for (let i = 0; i < idata.length; i += 4) {
+      let rgb = linear_to_rgb(idata[i]/255, idata[i + 1]/255, idata[i + 2]/255);
+
+      idata[i] = rgb[0]*255.0;
+      idata[i + 1] = rgb[1]*255.0;
+      idata[i + 2] = rgb[2]*255.0;
+    }
 
     for (let fbo of this.fbos) {
       fbo.update(this.gl, this.width, this.height);

@@ -3,7 +3,7 @@ import {
   Container, saveUIData, loadUIData,
   Vector2, Vector3, Vector4, Matrix4
 } from '../path.ux/pathux.js';
-import {lightFreqRange, lightWaveLengths, Pigment, PigmentWavelet} from './colormodel.js';
+import {KFREQ, KTOT, lightFreqRange, lightWaveLengths, Pigment} from './colormodel.js';
 
 export class PigmentEditor extends Container {
   constructor() {
@@ -17,6 +17,8 @@ export class PigmentEditor extends Container {
 
     this.width = 300;
     this.height = 300;
+
+    this.drawVerts = false;
 
     this.canvas = document.createElement("canvas");
     this.g = this.canvas.getContext("2d");
@@ -191,12 +193,43 @@ export class PigmentEditor extends Container {
 
     pigment.checkTables();
 
+    if (pigment.useHermite && this.drawVerts) {
+      g.beginPath();
+      let step = 0;
+
+      for (let list of [pigment.s_hermite, pigment.k_hermite]) {
+        g.fillStyle = colors[step];
+        g.beginPath();
+
+        for (let ki = 0; ki < list.length; ki += KTOT) {
+          let x = (list[ki + KFREQ] - list.range[0])/(list.range[1] - list.range[0]);
+          x *= canvas.width;
+
+          let y = list[ki];
+
+          y *= canvas.height*0.1;
+          y = canvas.height - y - 50;
+
+          let w = 4;
+          g.rect(x - w*0.5, y - w*0.5, w, w);
+        }
+
+        g.fill();
+        step++;
+      }
+    }
+
     for (let step = 0; step < 3; step++) {
       let frange = lightWaveLengths;
       let f = frange[0], df = (frange[1] - frange[0])/(steps - 1);
-      let dx = canvas.width/steps;
+      let dx = canvas.width/(steps - 1);
 
-      g.beginPath();
+      g.strokeStyle = colors[step];
+      g.fillStyle = colors[step];
+      g.lineWidth = 1.0;
+
+      let lastx = 0;
+      let lasty = 0;
 
       for (let i = 0; i < steps; i++, f += df) {
         let x, y;
@@ -218,16 +251,24 @@ export class PigmentEditor extends Container {
         y *= canvas.height*0.1;
         y = canvas.height - y - 50;
 
-        if (!i) {
-          g.moveTo(x, y);
-        } else {
-          g.lineTo(x, y);
+        if (this.drawVerts && !pigment.useHermite && step !== 2) {
+          let w = 3;
+          g.beginPath();
+          g.rect(x - w*0.5, y - w*0.5, w, w);
+          g.fill();
         }
+
+        if (i > 0) {
+          g.beginPath();
+          g.moveTo(lastx, lasty);
+          g.lineTo(x, y);
+          g.stroke();
+        }
+
+        lastx = x;
+        lasty = y;
       }
 
-      g.lineWidth = 1.0;
-      g.strokeStyle = colors[step];
-      g.stroke();
     }
 
   }
@@ -247,19 +288,83 @@ export class PigmentEditor extends Container {
     if (!this.getPigment()) {
       return
     }
-
     this.needRebuild = false;
-
     let data = saveUIData(this, "pigments");
-
     let path = this.getAttribute("datapath");
 
-    if (!this.pigmentDropbox) {
-      this.pigmentDropbox = this.prop(path + ".pigment");
-      //this.prop(path + ".useWavelets");
-    } else {
-      this.pigmentDropbox.setAttribute("datapath", path + ".pigment");
+    let uidata = saveUIData(this, "pigment-editor");
+    this.clear();
+    this.shadow.appendChild(this.canvas);
+
+    for (let label of this.rgbLabel) {
+      this.add(label);
     }
+
+    this.pigmentDropbox = this.prop(path + ".pigment");
+    this.drawVertsCheck = this.check(undefined, "Draw Verts");
+    this.drawVertsCheck.checked = this.drawVerts;
+
+    this.drawVertsCheck.onchange = () => {
+      this.drawVerts = this.drawVertsCheck.checked;
+      this.flagRedraw();
+    }
+
+    this.prop(`${path}.useHermite`);
+    let panel = this.panel("Hermite");
+
+    this.resetButton = panel.button("Reset Hermite", () => {
+      let pigment = this.ctx.api.getValue(this.ctx, path);
+
+      pigment.resetHermites();
+    });
+
+    panel.prop(path + ".errorLimit");
+    panel.prop(path + ".solveFac");
+
+    let sub = panel.strip();
+    let origHermite = sub.prop(path + ".origHermite");
+
+    this.optButton = sub.button("Optimize", () => {
+      let pigment = this.ctx.api.getValue(this.ctx, path);
+
+      pigment.optimizeHermite(pigment.k_hermite);
+      pigment.optimizeHermite(pigment.s_hermite);
+    });
+
+    this.optButton2 = sub.button("Optimize 2", () => {
+      let pigment = this.ctx.api.getValue(this.ctx, path);
+
+      pigment.optimizeStage2(pigment.k_hermite);
+      pigment.optimizeStage2(pigment.s_hermite);
+    });
+
+    this.randButton = sub.button("Randomize Hermite", () => {
+      let pigment = this.ctx.api.getValue(this.ctx, path);
+
+      pigment.randHermites();
+    });
+
+    this.fullSolveButton = sub.button("Full Solve", () => {
+      let pigment = this.ctx.api.getValue(this.ctx, path);
+      pigment.fullSolveHermite();
+    });
+
+    let bad = false;
+    origHermite.update.after(() => {
+      let pigment = this.ctx.api.getValue(this.ctx, path);
+
+      if (!pigment.origHermite !== !bad) {
+        bad = pigment.origHermite;
+
+        sub.style["background-color"] = bad ? "rgba(25, 25, 25, 0.5)" : "transparent";
+        sub.style["max-width"] = "fit-content";
+
+        this.optButton.disabled = bad;
+        this.optButton2.disabled = bad;
+        this.randButton.disabled = bad;
+        this.fullSolveButton.disabled = bad;
+      }
+    });
 
     /*
     if (!this.spanel) {
@@ -331,12 +436,25 @@ export class PigmentEditor extends Container {
     }
     */
 
-    loadUIData(this, data);
+    this.flushSetCSS();
+    this.flushUpdate();
 
-    for (let i = 0; i < 3; i++) {
-      this.flushSetCSS();
-      this.flushUpdate();
+    loadUIData(this, uidata);
+  }
+
+  saveData() {
+    return Object.assign(super.saveData(), {
+      drawVerts: this.drawVerts
+    });
+  }
+
+  loadData(obj) {
+    this.drawVerts = !!obj.drawVerts;
+
+    if (this.drawVertsCheck) {
+      this.drawVertsCheck.checked = this.drawVerts;
     }
+    super.loadData(obj);
   }
 
   update() {
@@ -359,7 +477,7 @@ export class PigmentEditor extends Container {
       this.flagRedraw();
     }
 
-    let key = "" + pigment.s_wavelets.length + ":" + pigment.k_wavelets.length;
+    let key = "" + pigment.s_hermite.length + ":" + pigment.k_hermite.length;
     if (key !== this._last_rebuild_key) {
       this._last_rebuild_key = key;
       this.needRebuild = true;

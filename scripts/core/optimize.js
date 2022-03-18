@@ -2,7 +2,7 @@ import {
   util, nstructjs, Vector2, Vector3,
   Vector4, Matrix4, Quat, math, keymap, simple
 } from '../path.ux/scripts/pathux.js';
-import {Pigment, pigment_data, WIDE_GAMUT} from './colormodel.js';
+import {KTOT, Pigment, pigment_data, setInsideSolver, START_REFL_K1, START_REFL_K2, WIDE_GAMUT} from './colormodel.js';
 
 import '../util/numeric.js';
 
@@ -11,6 +11,7 @@ export const SolverFlags = {
   NEWTON   : 1,
   ANNEALING: 2,
   HIGH_PASS: 4,
+  STRETCH  : 8,
 }
 
 export class SolverSettings {
@@ -21,6 +22,7 @@ export class SolverSettings {
     this.subPoints = 256;
     this.highPassFac = 0.5;
     this.errorOut = 0.0;
+    this.pointSubSteps = 5;
   }
 
   static defineAPI(api, st) {
@@ -42,6 +44,10 @@ export class SolverSettings {
       .readOnly()
       .noUnits()
       .decimalPlaces(4);
+    st.int("pointSubSteps", "pointSubSteps", "Point Steps", "How many iterations to use the same point set")
+      .noUnits()
+      .range(1, 100)
+      .slideSpeed(3);
   }
 }
 
@@ -52,6 +58,7 @@ SolverSettings {
   newtonStep     : float;
   subPoints      : int;
   highPassFac    : float;
+  pointSubSteps  : int;
 }
 `;
 simple.DataModel.register(SolverSettings);
@@ -156,6 +163,8 @@ export class Optimizer {
     this.rand2 = new util.MersenneRandom();
     this.stepi = 0;
 
+    this.startseed = Math.random();
+
     this.settings = settings;
     this.cdimen = 8;
     this.cube = new Int8Array(this.cdimen**3);
@@ -241,6 +250,11 @@ export class Optimizer {
   error(points) {
     let ks = kstemps.next();
 
+    let optMode = 0;
+    if (this.settings.flag & SolverFlags.STRETCH) {
+      optMode = 1;
+    }
+
     let ps = this.pigments;
 
     let min = cstemps.next().addScalar(1e17);
@@ -249,7 +263,7 @@ export class Optimizer {
     let cube = this.cube;
     let cdimen = this.cdimen;
 
-    if (MAXIMIZE_GAMUT) {
+    if (optMode) {
       cube.fill(0);
     }
 
@@ -266,7 +280,7 @@ export class Optimizer {
       min.min(rgb);
       max.max(rgb);
 
-      if (MAXIMIZE_GAMUT) {
+      if (optMode) {
         let x = ~~(rgb[0]*cdimen);
         let y = ~~(rgb[1]*cdimen);
         let z = ~~(rgb[2]*cdimen);
@@ -287,7 +301,7 @@ export class Optimizer {
     let err = 0.0;
 
     for (let i = 0; i < 3; i++) {
-      if (!MAXIMIZE_GAMUT) {
+      if (!optMode) {
         if (min[i] < 0) {
           err += -min[i];
         }
@@ -301,8 +315,12 @@ export class Optimizer {
       }
     }
 
-    if (MAXIMIZE_GAMUT) {
-      err += 2.0*(1.0 - totcube)**2;
+    if (optMode) {
+      if (!MAXIMIZE_GAMUT) {
+        err *= 1.0 + 0.15*(1.0 - totcube)**2
+      } else {
+        err += 2.0*(1.0 - totcube)**2;
+      }
     }
 
     return err;
@@ -332,22 +350,23 @@ export class Optimizer {
       let grads = [[], []];
       gs.push(grads);
 
-      let pdata = pigment_data.pigmentKS[p.pigment];
-      let tables = [pdata.K, pdata.S];
+      let {tables, step, stepRange} = this.getTables(p);
 
       let tablei = 0;
       for (let table of tables) {
         grads[tablei].length = table.length;
         let gs2 = grads[tablei];
 
-        for (let i = 0; i < table.length; i++) {
-          let orig = table[i];
-          table[i] += df;
-          let r2 = this.error(points);
-          table[i] = orig;
+        for (let i = 0; i < table.length; i += step) {
+          for (let j = 0; j < stepRange; j++) {
+            let orig = table[i + j];
+            table[i + j] += df;
+            let r2 = this.error(points);
+            table[i + j] = orig;
 
-          let g = gs2[i] = (r2 - r1)*oneDf;
-          totg += g*g;
+            let g = gs2[i + j] = (r2 - r1)*oneDf;
+            totg += g*g;
+          }
         }
 
         tablei++;
@@ -360,14 +379,16 @@ export class Optimizer {
 
     let scale_g;
 
-    if (MAXIMIZE_GAMUT) {
-      let orig = window.COLOR_SCALE;
-      window.COLOR_SCALE += df;
+    const SOLVE_COLOR_SCALE = false; //MAXIMIZE_GAMUT;
+
+    if (SOLVE_COLOR_SCALE) {
+      let orig = ps.colorScale;
+      ps.colorScale += df;
 
       let r2 = this.error(points);
       let g = scale_g = (r2 - r1)/df;
 
-      window.COLOR_SCALE = orig;
+      ps.colorScale = orig;
       totg += g*g*0.2*0.2;
     }
 
@@ -375,17 +396,18 @@ export class Optimizer {
     let fac = -r1*0.875*gk;
 
     for (let i = 0; i < ps.length; i++) {
-      let pdata = pigment_data.pigmentKS[ps[i].pigment];
-      let tables = [pdata.K, pdata.S];
+      let {tables, step, stepRange} = this.getTables(ps[i]);
       let grads = gs[i];
 
       for (let tablei = 0; tablei < 2; tablei++) {
         let table = tables[tablei];
         let gs2 = grads[tablei];
 
-        for (let j = 0; j < table.length; j++) {
-          table[j] += gs2[j]*fac;
-          table[j] = Math.max(table[j], 0.0);
+        for (let j = 0; j < table.length; j += step) {
+          for (let k = 0; k < stepRange; k++) {
+            table[j + k] += gs2[j + k]*fac;
+            table[j + k] = Math.max(table[j + k], 0.0);
+          }
         }
       }
     }
@@ -394,11 +416,11 @@ export class Optimizer {
       this.loadOrig(ps, origs);
     }
 
-    if (MAXIMIZE_GAMUT) {
-      //window.COLOR_SCALE += fac*scale_g*0.05;
+    if (SOLVE_COLOR_SCALE) {
+      ps.colorScale += fac*scale_g*0.05;
     }
 
-    doprint(0, "totg:", totg, gs);
+    doprint(0, "  totg:", totg, gs);
   }
 
   saveOrig(ps) {
@@ -408,7 +430,7 @@ export class Optimizer {
       let pdata = pigment_data.pigmentKS[ps[i].pigment];
       let tables = [pdata.K, pdata.S];
 
-      let orig = [pdata.K.concat([]), pdata.S.concat([])];
+      let orig = [util.list(pdata.K), util.list(pdata.S)];
       origs.push(orig);
     }
 
@@ -432,12 +454,30 @@ export class Optimizer {
     }
   }
 
+  getTables(pigment) {
+    if (pigment.useHermite) {
+      return {
+        tables   : [pigment.k_hermite, pigment.s_hermite],
+        step     : KTOT,
+        stepRange: 2, //value and derivative
+      }
+    } else {
+      let pdata = pigment_data.pigmentKS[pigment.pigment];
+
+      return {
+        tables   : [pdata.K, pdata.S],
+        step     : 1,
+        stepRange: 1,
+      }
+    }
+  }
+
   annealing(points) {
     let ps = this.pigments;
 
     let r1 = this.error(points);
 
-    let decay = MAXIMIZE_GAMUT ? 0.005 : 0.0005;
+    let decay = MAXIMIZE_GAMUT ? 0.005 : 0.005;
 
     decay *= window.DECAY;
 
@@ -448,28 +488,28 @@ export class Optimizer {
 
     rfac *= this.settings.randFac;
 
-    doprint(1, rfac.toFixed(4), prob.toFixed(4));
+    doprint(1, "  ", rfac.toFixed(4), prob.toFixed(4));
     let origs = [];
 
     let rand2 = this.rand2;
 
     for (let i = 0; i < ps.length; i++) {
-      let pdata = pigment_data.pigmentKS[ps[i].pigment];
-      let tables = [pdata.K, pdata.S];
-
-      let orig = [pdata.K.concat([]), pdata.S.concat([])];
+      let {tables, step, stepRange} = this.getTables(ps[i]);
+      let orig = [util.list(tables[0]), util.list(tables[1])];
       origs.push(orig);
 
       for (let tablei = 0; tablei < 2; tablei++) {
         let table = tables[tablei];
 
-        for (let j = 0; j < table.length; j++) {
-          if (rand2.random() > 0.1) {
-            continue;
-          }
+        for (let j = 0; j < table.length; j += step) {
+          for (let k = 0; k < stepRange; k++) {
+            if (rand2.random() > 0.1) {
+              continue;
+            }
 
-          table[j] += (rand2.nrandom() - 0.5)*rfac;
-          table[j] = Math.max(table[j], 0.0);
+            table[j + k] += (rand2.nrandom() - 0.5)*rfac;
+            table[j + k] = Math.max(table[j + k], 0.0);
+          }
         }
       }
     }
@@ -479,17 +519,14 @@ export class Optimizer {
 
     if (bad) {
       for (let i = 0; i < ps.length; i++) {
-        let pdata = pigment_data.pigmentKS[ps[i].pigment];
-        let tables = [pdata.K, pdata.S];
+        let {tables, step} = this.getTables(ps[i]);
         let orig = origs[i];
 
         for (let tablei = 0; tablei < 2; tablei++) {
           let table = tables[tablei];
           let otable = orig[tablei];
 
-          for (let j = 0; j < table.length; j++) {
-            table[j] = otable[j];
-          }
+          table.set(otable);
         }
       }
     }
@@ -500,28 +537,34 @@ export class Optimizer {
     const fac = this.settings.highPassFac*0.001;
 
     for (let i = 0; i < ps.length; i++) {
-      let pdata = pigment_data.pigmentKS[ps[i].pigment];
-      let tables = [pdata.K, pdata.S];
+      let {tables, step, stepRange} = this.getTables(ps[i]);
 
       for (let tablei = 0; tablei < 2; tablei++) {
         let table = tables[tablei];
 
-        let ma = new util.MovingAvg(8);
+        let mas = new Array(stepRange).map(ma => new util.MovingAvg(8));
 
         let t = fac*err;
 
-        for (let j = 0; j < table.length; j++) {
-          table[j] = ma.add(table[j])*t + table[j]*(1.0 - t);
+        for (let j = 0; j < table.length; j += step) {
+          for (let k = 0; k < stepRange; k++) {
+            table[j + k] = mas[k].add(table[j])*t + table[j]*(1.0 - t);
+          }
         }
       }
     }
   }
 
   step() {
-    let rate = MAXIMIZE_GAMUT ? 4 : 8;
-    rate *= 8;
+    let rate = this.settings.pointSubSteps;
+    //rate *= 8;
 
-    this.rand.seed(~~(this.stepi/rate));
+    let ps = this.pigments;
+    ps.updateWasm();
+
+    setInsideSolver(true);
+
+    this.rand.seed(~~(this.stepi/rate + this.startseed*1024.0));
 
     let points = this.genPoints();
 
@@ -548,9 +591,9 @@ export class Optimizer {
     }
 
     if (MAXIMIZE_GAMUT) {
-      doprint(2, "error:", this.stepi%rate, err, "COLOR_SCALE:", window.COLOR_SCALE.toFixed(3));
+      doprint(2, `error: ${err.toFixed(4)} [${this.stepi%rate}]`, "COLOR_SCALE:", ps.colorScale.toFixed(3));
     } else {
-      doprint(2, "error:", this.stepi%rate, err);
+      doprint(2, `error: ${err.toFixed(4)} [${this.stepi%rate}]`);
     }
 
     for (let p of this.pigments) {
@@ -558,6 +601,8 @@ export class Optimizer {
     }
 
     this.stepi++;
+
+    setInsideSolver(false);
   }
 
   stop() {
@@ -575,24 +620,28 @@ export class Optimizer {
 }
 
 export function writeTables() {
-  function myStringify(obj, replacer, ws, depth = 0) {
+  function myStringify(obj, replacer, decimalPlaces = 5, ws, depth = 0) {
     let tab = '';
     for (let i = 0; i < depth; i++) {
       tab += "  ";
     }
 
     if (typeof obj === "number") {
-      return "" + obj;
+      return "" + obj.toFixed(decimalPlaces);
     } else if (typeof obj === "boolean") {
       return obj ? "true" : "false";
     } else if (typeof obj === "string") {
       return `"${obj}"`;
     } else if (typeof obj === "object") {
-      if (obj.toJSON) {
-        return myStringify(obj.toJSON(), replacer, ws, depth);
+      if (obj === null) {
+        return "null";
       }
 
-      if (obj instanceof Array) {
+      if (obj.toJSON) {
+        return myStringify(obj.toJSON(), replacer, decimalPlaces, ws, depth);
+      }
+
+      if (Array.isArray(obj) || obj instanceof Float32Array || obj instanceof Float64Array) {
         let s = "[";
 
         let addNewline = false;
@@ -608,7 +657,7 @@ export function writeTables() {
             s += addNewline ? "\n" : " ";
           }
 
-          let chunk = myStringify(obj[i], replacer, ws, depth + 1);
+          let chunk = myStringify(obj[i], replacer, decimalPlaces, ws, depth + 1);
           if (chunk.endsWith("\n")) {
             chunk = chunk.slice(0, chunk.length - 1);
           }
@@ -632,7 +681,7 @@ export function writeTables() {
             continue;
           }
 
-          s += tab + `  "${k}" : ${myStringify(v, replacer, ws, depth + 1)},\n`
+          s += tab + `  "${k}" : ${myStringify(v, replacer, decimalPlaces, ws, depth + 1)},\n`
         }
 
         s += tab + "}\n";
@@ -653,10 +702,44 @@ export function writeTables() {
     }
   }
 
-  let code = `/* WARNING: auto-generated file! */
-export const wavelengths = ${JSON.stringify(pigment_data.wavelengths)};
-export const pigmentKS = ${myStringify(pigment_data.pigmentKS, replacer, 1)};
+  let colorScale = COLOR_SCALE*_appstate.ctx.pigments.colorScale;
 
+  let hermite = pigment_data.pigmentHermite;
+  let ps = _appstate.ctx.pigments;
+
+  for (let pigment of ps) {
+    let h;
+
+    for (let h2 of hermite) {
+      if (h2.pigment === pigment.pigment) {
+        h = h2;
+        break;
+      }
+    }
+
+    if (!h) {
+      h = {
+        pigment: pigment.pigment
+      };
+
+      hermite.push(h);
+    }
+
+    h.K = pigment.k_hermite;
+    h.S = pigment.s_hermite;
+  }
+
+  let code = `/* WARNING: auto-generated file! color scale: ${colorScale} */
+export const wavelengths = ${JSON.stringify(pigment_data.wavelengths)};
+export const pigmentKS = ${myStringify(pigment_data.pigmentKS, replacer, undefined, 1)};
+
+/*
+hermite format:
+
+value deltaValue wavelength (unused parameter) 
+*/
+
+export const pigmentHermite = ${myStringify(hermite, undefined, 3, 1)};
 
 export function getPigment(name) {
   for (let pigment of pigmentKS) {

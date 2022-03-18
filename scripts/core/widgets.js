@@ -1,14 +1,17 @@
 import {
   nstructjs, util, Vector2, Vector3,
   Vector4, Matrix4, Quat, math, UIBase,
-  Container, saveUIData, loadUIData, ToolOp, IntProperty, Vec4Property, EnumProperty, iconmanager, StringProperty
+  Container, saveUIData, loadUIData, ToolOp, IntProperty, Vec4Property, EnumProperty, iconmanager, StringProperty,
+  popModalLight, pushModalLight, keymap, parsepx
 } from '../path.ux/scripts/pathux.js';
 import {Icons} from './icon_enum.js';
 
 import '../webgl/brush_webgl_ops.js';
 import {presetManager} from './presets.js';
-import {Brush, BrushTools} from './brush.js';
+import {Brush, BrushMixModes, BrushTools} from './brush.js';
 import {Presets} from '../presets/brush_presets.js';
+import {Optimizer} from './optimize.js';
+import {Pigment, START_REFL_K1, START_REFL_K2} from './colormodel.js';
 
 export const BrushIconCache = new Map();
 
@@ -345,6 +348,7 @@ export class AddBrushOp extends ToolOp {
     ctx.api.setValue(ctx, this.inputs.datapath.getValue(), brush);
   }
 }
+
 ToolOp.register(AddBrushOp);
 
 export class ResetBrushOp extends ToolOp {
@@ -390,7 +394,7 @@ export class ResetBrushOp extends ToolOp {
       console.warn("Not a preset brush!");
 
       let brush2 = new Brush();
-      
+
       brush2.tool = brush.tool;
       brush2.name = brush.name;
       brush2.presetId = brush.presetId;
@@ -405,7 +409,7 @@ export class ResetBrushOp extends ToolOp {
       } else {
         preset = Brush.applyDeltaSave(preset);
         let brush2 = Brush.loadSave(preset);
-        
+
         brush2.tool = brush.tool;
         brush2.name = brush.name;
         brush2.sourcePreset = brush.sourcePreset;
@@ -418,6 +422,7 @@ export class ResetBrushOp extends ToolOp {
     }
   }
 }
+
 ToolOp.register(ResetBrushOp);
 
 export class BrushSelector extends Container {
@@ -604,3 +609,458 @@ export class BrushSelector extends Container {
 }
 
 UIBase.register(BrushSelector);
+
+export class LUTEditorWidget extends Container {
+  constructor() {
+    super();
+
+    this.needsBuild = true;
+  }
+
+  static define() {
+    return {
+      tagname: "pigment-lut-editor-x",
+    }
+  }
+
+  init() {
+    if (this.ctx) {
+      this.build();
+    }
+  }
+
+  update() {
+    super.update();
+
+    if (this.ctx && this.needsBuild) {
+      this.build();
+    }
+  }
+
+  build() {
+    this.needsBuild = false;
+    let names = ["C", "M", "Y", "K"];
+
+    this.solver = undefined;
+
+    let panel = this.panel("Solver");
+
+    let button2 = panel.button("Optimize", () => {
+      if (this.solver) {
+        this.solver.stop();
+        this.solver = undefined;
+        button2.name = "Optimize";
+      } else {
+        this.solver = new Optimizer(this.ctx.pigments, this.ctx.settings.solverSettings);
+        this.solver.start();
+        button2.name = "Stop";
+      }
+    });
+
+    panel.dataPrefix = "settings.solverSettings";
+
+    let row = panel.row();
+    row.label("Error:")
+    row.pathlabel("errorOut");
+
+    panel.prop("flag");
+    panel.prop("randFac");
+    panel.prop("newtonStep");
+    panel.prop("subPoints");
+    panel.prop("highPassFac");
+    panel.prop("pointSubSteps");
+
+    button2.description = "Optimize pigment spectral at a data level";
+
+    panel = this.panel("Render");
+
+    let lutimage = undefined;
+    let canvas = document.createElement("canvas");
+    let g = canvas.getContext("2d");
+
+    canvas.width = canvas.height = 256;
+
+    let render = () => {
+      lutimage = window.renderedLut;
+
+      g.clearRect(0, 0, canvas.width, canvas.height);
+      g.drawImage(lutimage, 0, 0, canvas.width, canvas.height);
+
+    }
+
+    panel.appendChild(canvas);
+
+    this.update.after(() => {
+      if (window.renderedLut !== lutimage) {
+        render();
+      }
+    });
+
+    this.button("Render", () => {
+      this.ctx.pigments.renderLUTCube();
+    });
+
+    let bindView = () => {
+      let getmouse = (e) => {
+        let r = canvas.getBoundingClientRect();
+
+        let w = canvas.width/UIBase.getDPI();
+
+        let x = (e.x - r.x)/w;
+        let y = (e.y - r.y)/w;
+
+        return new Vector2([x, y]);
+      }
+
+      let modalstate;
+
+      let endModal = () => {
+        if (modalstate) {
+          popModalLight(modalstate);
+          modalstate = undefined;
+          this.ctx.pigments._cameraDragging = false;
+          this.ctx.pigments.renderLUTCube();
+        }
+      }
+
+      let last_mpos = new Vector2();
+
+      canvas.addEventListener("pointerdown", (e) => {
+        console.log("Canvas mouse down!");
+
+        last_mpos = getmouse(e);
+
+        if (e.button === 0) {
+          e.preventDefault();
+        }
+
+        if (modalstate) {
+          return;
+        }
+
+        e.stopPropagation();
+
+        let ctx = this.ctx;
+
+        modalstate = pushModalLight({
+          on_pointerup(e) {
+            endModal();
+          },
+
+          on_pointercancel(e) {
+            endModal();
+          },
+
+          on_pointermove(e) {
+            let mpos = getmouse(e);
+            mpos.sub(last_mpos);
+
+            last_mpos.load(getmouse(e));
+
+            let cam = ctx.pigments.renderCamera;
+
+            let mat = new Matrix4();
+
+            let mat2 = new Matrix4(cam.cameramat);
+            mat2.makeRotationOnly();
+            let imat2 = new Matrix4(mat2);
+
+            imat2.invert();
+
+            //mpos.mulScalar(0.1);
+
+            mat.euler_rotate(mpos[1], -mpos[0], 0.0);
+            mat.preMultiply(imat2);
+            mat.multiply(mat2);
+
+            cam.pos.multVecMatrix(mat);
+            cam.target.multVecMatrix(mat);
+            cam.up.multVecMatrix(mat);
+            cam.regen_mats(1.0);
+
+            ctx.pigments.renderLUTCube();
+            render();
+          },
+          on_keydown(e) {
+            if (e.keyCode === keymap["Escape"]) {
+              endModal();
+            }
+          }
+        });
+      });
+    }
+
+    bindView();
+
+    panel = this.panel("Create LUT");
+    panel.useIcons(false);
+
+    panel.dataPrefix = "pigments";
+
+    panel.prop("genDimen");
+    panel.prop("fillInLut");
+    panel.prop("blurFilledInPixels");
+    panel.prop("blurRadius");
+    panel.prop("blurAll");
+    panel.prop("optimizeFilledIn");
+    panel.prop("optSteps");
+    panel.prop("createReverseLut");
+    panel.prop("upscaleGoal");
+    panel.prop("lutQuality");
+    panel.prop("colorScale");
+
+    let panel2 = this.panel("Specular");
+
+    let k1, k2;
+
+    panel2.dataPrefix = "";
+    panel2.prop("pigments.useCustomKs").update.after(() => {
+      let disabled = !this.ctx.api.getValue(this.ctx, "pigments.useCustomKs")
+
+      k1.disabled = disabled;
+      k2.disabled = disabled;
+    });
+    k1 = panel2.prop("pigments.k1");
+    k2 = panel2.prop("pigments.k2");
+
+    panel2.button("Reload K1/K2", () => {
+      panel2.setPathValueUndo(this.ctx, "pigments.k1", START_REFL_K1);
+      panel2.setPathValueUndo(this.ctx, "pigments.k2", START_REFL_K2);
+    });
+
+    let job = undefined;
+    let gen = undefined;
+    let messages = {};
+
+    let createButton = panel.button("Create LUT", () => {
+      let this2 = this;
+
+      function endJob() {
+        window.clearInterval(job);
+        job = undefined;
+        gen = undefined;
+        createButton.name = "Create LUT";
+
+        for (let k in messages) {
+          if (messages[k] !== 1.0) {
+            this2.ctx.progressBar(k, 1.0);
+          }
+        }
+      }
+
+      if (job !== undefined) {
+        endJob();
+        return;
+      }
+
+      createButton.name = "Cancel";
+
+      let reporter = (msg, percent) => {
+        messages[msg] = percent;
+        this.ctx.progressBar(msg, percent);
+      }
+
+      function* Job() {
+        let ps = this2.ctx.pigments;
+
+        let gen1 = this2.ctx.pigments.makeLUTsJob(ps.genDimen, ps.doFillInLut, ps.upscaleGoal, ps.lutQuality, !ps.createReverseLut, reporter);
+
+        for (let step of gen1) {
+          yield;
+        }
+
+        this2.ctx.pigments.makeLUTImage();
+      }
+
+      gen = Job();
+      job = window.setInterval(() => {
+        let start = util.time_ms();
+
+        while (util.time_ms() - start < 30) {
+          let next = gen.next();
+
+          if (next.done) {
+            endJob();
+          }
+        }
+      }, 35);
+    });
+
+  }
+}
+
+UIBase.register(LUTEditorWidget);
+
+export class ColorBlendPreview extends Container {
+  constructor() {
+    super();
+
+    this._last_update_hash = undefined;
+    this._updateDigest = new util.HashDigest();
+
+    this.image = undefined;
+    this.canvas = document.createElement("canvas");
+    this.g = this.canvas.getContext("2d");
+
+    this.shadow.appendChild(this.canvas);
+    this.showRaw = this.check(undefined, "Show Raw");
+  }
+
+  get width() {
+    if (this.hasAttribute("width")) {
+      return parsepx(this.getAttribute("width"));
+    } else {
+      return 200.0;
+    }
+  }
+
+  set width(v) {
+    this.setAttribute("width", "" + v);
+    this.setCSS();
+  }
+
+  get height() {
+    if (this.hasAttribute("height")) {
+      return parsepx(this.getAttribute("height"));
+    } else {
+      return 20.0;
+    }
+  }
+
+  set height(v) {
+    this.setAttribute("height", "" + v);
+    this.setCSS();
+  }
+
+  updateSize() {
+    let dpi = UIBase.getDPI();
+
+    let w = ~~(this.width*dpi);
+    let h = ~~(this.height*dpi);
+
+    let canvas = this.canvas;
+    if (w === this.canvas.width || h === this.canvas.height) {
+      return;
+    }
+
+    this.image = new ImageData(w, 1);
+
+    this.canvas.width = w;
+    this.canvas.height = 1;
+
+    this.canvas.style["width"] = (w/dpi) + "px";
+    this.canvas.style["height"] = (h/dpi) + "px";
+
+    this.redraw();
+  }
+
+  saveData() {
+    return Object.assign({
+      showRaw : this.showRaw.checked
+    }, super.saveData());
+  }
+
+  loadData(obj) {
+    this.showRaw.checked = !!obj.showRaw;
+
+    return super.loadData(obj);
+  }
+
+  setCSS() {
+    this.updateSize();
+  }
+
+  redraw() {
+    let brush = this.ctx.api.getValue(this.ctx, this.getAttribute("datapath"));
+    let c1 = brush.color;
+    let c2 = brush.color2;
+
+    let c = new Vector4();
+    let canvas = this.canvas;
+    let image = this.image, idata = image.data;
+    let t = 0.0, dt = 1.0 / (image.width - 1);
+
+    let colors = [c1, c2];
+    let ws = [0, 0];
+
+    let mixFunc;
+
+    let bilinear = true;
+    if (this.ctx.canvas) {
+      bilinear = this.ctx.canvas.triLinearSample;
+    }
+
+    switch (brush.mixMode) {
+      case BrushMixModes.PIGMENT:
+        mixFunc = Pigment.mixRGB;
+        break;
+      case BrushMixModes.SIMPLE:
+        mixFunc = Pigment.mixRGB_Simple;
+        break;
+      case BrushMixModes.CMYK_HSV:
+        mixFunc = Pigment.mixRGB_CMYK;
+        break;
+      case BrushMixModes.HSV:
+        mixFunc = Pigment.mixRGB_HSV;
+        break;
+    }
+
+    const doRaw = this.showRaw.checked;
+
+    for (let i=0; i<image.width; i++, t += dt) {
+      c.load(c1).interp(c2, t)
+
+      ws[0] = 1.0 - t;
+      ws[1] = t;
+
+      let d = mixFunc(brush.pigments, colors, ws, undefined, bilinear, !doRaw);
+      c.loadXYZ(d[0], d[1], d[2]);
+
+      idata[i*4] = c[0]*255;
+      idata[i*4+1] = c[1]*255;
+      idata[i*4+2] = c[2]*255;
+      idata[i*4+3] = c[3]*255;
+    }
+
+    this.g.putImageData(image, 0, 0);
+  }
+
+  update() {
+    super.update();
+
+    this.updateSize();
+    this.updateDataPath();
+  }
+
+  updateDataPath() {
+    let brush = this.ctx.api.getValue(this.ctx, this.getAttribute("datapath"));
+
+    let digest = this._updateDigest.reset();
+    digest.add(brush.color);
+    digest.add(brush.color2);
+
+    digest.add(brush.mixMode);
+    digest.add(this.showRaw.checked);
+
+    if (this.ctx.canvas) {
+      digest.add(this.ctx.canvas.triLinearSample);
+    }
+
+    let hash = digest.get();
+
+    console.log(hash);
+
+    if (hash !== this._last_update_hash) {
+      this._last_update_hash = hash;
+      this.redraw();
+    }
+  }
+
+  static define() {
+    return {
+      tagname: "color-preview-x"
+    }
+  }
+}
+
+UIBase.register(ColorBlendPreview);

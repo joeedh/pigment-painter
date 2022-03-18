@@ -4,7 +4,7 @@
 * it*/
 import {Camera} from '../webgl/webgl.js';
 
-export const WIDE_GAMUT = false;
+export const WIDE_GAMUT = true;
 
 export const USE_LUT_IMAGE = true;
 export const LINEAR_LUT = false;
@@ -27,6 +27,14 @@ export const lightWaveLengths = [380, 750];
 export const lightFreqRange = [waveLengthToFreq(lightWaveLengths[0]), waveLengthToFreq(lightWaveLengths[1])];
 
 let lutImages = {};
+
+let insideSolver = false;
+
+export function setInsideSolver(val) {
+  insideSolver = !!val;
+}
+
+let torgbtmp = [0, 0, 0, 0];
 
 export function getLUTImage() {
   return platform.getPlatformAsync().then(() => {
@@ -88,7 +96,7 @@ export function getLUTImage() {
 Math.tent = f => 1.0 - Math.abs(Math.fract(f) - 0.5)*2.0;
 let mat_temps = util.cachering.fromConstructor(Matrix4, 32);
 
-window.COLOR_SCALE = WIDE_GAMUT ? 2.0 : (!LINEAR_LUT ? 1.2 : 1.0);
+window.COLOR_SCALE = WIDE_GAMUT ? 1.0 : 1.0;
 window.REFL_K1 = 0.030;
 window.REFL_K2 = 0.650;
 
@@ -104,7 +112,9 @@ function g(x, mu, o1, o2) {
 }
 
 import {xhat, yhat, zhat} from './cie10.js';
-import {makeSharedImageData, wasmModule} from '../../wasm/wasm_api.js';
+import {makeSharedImageData, wasmModule, wasmReady} from '../../wasm/wasm_api.js';
+import {cubic, icubic} from './bezier.js';
+import {WasmPigment} from './wasmPigment.js';
 
 /*
 //xyz cie 2 degree chromiticty functions
@@ -132,7 +142,7 @@ let wdigest = new util.HashDigest();
 
 let lightWaveLengthMul = 1.0/(lightWaveLengths[1] - lightWaveLengths[0]);
 
-export class PigmentWavelet {
+export class PigmentWaveletUNUSED {
   constructor(freq = 300, decay = 300, mag = 300) {
     this.freq = freq;
     this.decay = decay;
@@ -255,7 +265,7 @@ export class PigmentWavelet {
   }
 
   copy() {
-    let w = new PigmentWavelet();
+    let w = new PigmentWaveletUNUSED();
 
     w.freq = this.freq;
     w.decay = this.decay;
@@ -267,7 +277,7 @@ export class PigmentWavelet {
   }
 }
 
-PigmentWavelet.STRUCT = `
+PigmentWaveletUNUSED.STRUCT = `
 PigmentWavelet {
   freq      : double;
   decay     : double;
@@ -276,7 +286,7 @@ PigmentWavelet {
   offy      : double;
 }
 `;
-simple.DataModel.register(PigmentWavelet);
+simple.DataModel.register(PigmentWaveletUNUSED);
 
 let pdigest = new util.HashDigest();
 let arrtmp1 = [0];
@@ -295,20 +305,38 @@ function getTempArray(n) {
   return arrtemps[n].next();
 }
 
+//note that ITOT must be same as KTOT
+export const IA = 0, IB = 1, IC = 2, ISUM = 3, ITOT = 4;
+
+//ktmp is used by integration table
+export const KA = 0, KDA = 1, KFREQ = 2, KTMP = 3, KTOT = 4;
+
 export class Pigment {
   constructor() {
     this.useWavelets = false;
-
     this.pigmentSet = undefined;
-
     this.updateGen = 0;
 
-    this.k_wavelets = [];
-    this.s_wavelets = [];
+    this.wasm = undefined;
+
     this.name = "Pigment";
+
+    this.errorLimit = 1.0;
+    this.solveFac = 0.5;
+    this.origHermite = true;
 
     this.randfac = 1.0;
     this.pigment = 0; //see pigment_data.js
+
+    this._last_pigment = 0;
+    this._last_int_key = undefined;
+
+    this.useHermite = false;
+
+    this.k_hermite = [];
+    this.s_hermite = [];
+    this.ik_hermite = [];
+    this.is_hermite = [];
 
     this.reset();
   }
@@ -316,8 +344,18 @@ export class Pigment {
   static defineAPI(api, st) {
     st.string("name", "name", "Name");
     st.float("randfac", "randfac", "Rand").range(0.0, 100.0).noUnits();
+    st.float("errorLimit", "errorLimit", "Error Limit", "Error limit for hermite optimization")
+      .noUnits().range(0.0, 5.0).slideSpeed(5.0);
+    st.float("solveFac", "solveFac", "Factor", "Optimization 2 factor")
+      .noUnits().range(0.0, 5.0).slideSpeed(5.0);
 
-    st.bool("useWavelets", "useWavelets", "Wavelets");
+    st.bool("useHermite", "useHermite", "Use Hermite").on('change', function () {
+      this.dataref.updateGen++;
+    });
+
+    st.bool("origHermite", "origHermite", "Use Original", "Use Stored Original").on('change', function () {
+      this.dataref.updateGen++;
+    });
 
     let enumDef = {};
     let i = 0;
@@ -351,11 +389,6 @@ export class Pigment {
       });
     }
 
-    let lists = ["s_wavelets", "k_wavelets"];
-
-    for (let list of lists) {
-      makeList(list);
-    }
 
     return st;
   }
@@ -417,7 +450,7 @@ export class Pigment {
     }
 
     let ratio = K/S;
-    return 1.0 + ratio - Math.sqrt(ratio*ratio + 2.0*ratio);
+    return 1.0 + ratio - Math.sqrt(Math.abs(ratio*ratio + 2.0*ratio));
   }
 
   static mixRGB_CMYK(pigments, cs, ws, dither = false) {
@@ -553,7 +586,7 @@ export class Pigment {
     return ret;
   }
 
-  static mixRGB(pigments, colors, ws, dither = false) {
+  static mixRGB(pigments, colors, ws, dither = false, bilinear = true, errorCorrect = true) {
     //return this.mixRGB_Simple(pigments, colors, ws, dither);
     //return this.mixRGB_CMYK(pigments, colors, ws, dither);
     //return this.mixRGB_HSV(pigments, colors, ws, dither);
@@ -575,11 +608,11 @@ export class Pigment {
       }
 
       wsb[i] = ws ? ws[i] : 1.0/cs2.length;
-      ks[i] = ps.sampleLUT(c[0], c[1], c[2]);
+      ks[i] = ps.sampleLUT(c[0], c[1], c[2], undefined, bilinear);
 
       alpha += colors[i][3]*wsb[i];
 
-      cs3[i] = Pigment.toRGB_intern(pigments, ks[i]);
+      cs3[i] = Pigment.toRGB_intern(pigments, ks[i], bilinear);
       cs3[i].sub(cs2[i]);
 
       delta.addFac(cs3[i], -wsb[i]);
@@ -597,9 +630,12 @@ export class Pigment {
       ks2.mulScalar(1.0/w);
     }
 
-    let res = Pigment.toRGB_intern(pigments, ks2);
+    let res = Pigment.toRGB_intern(pigments, ks2, bilinear);
     let color2 = mixRGBRets.next().load(res);
-    color2.add(delta);
+
+    if (errorCorrect) {
+      color2.add(delta);
+    }
 
     if (LINEAR_LUT) {
       color2.load(linear_to_rgb(color2[0], color2[1], color2[2]));
@@ -607,7 +643,7 @@ export class Pigment {
 
     color2[3] = alpha;
 
-    if (1 || dither) {
+    if (dither) {
       color2[0] += (Math.random() - 0.5)/255.0;
       color2[1] += (Math.random() - 0.5)/255.0;
       color2[2] += (Math.random() - 0.5)/255.0;
@@ -617,20 +653,24 @@ export class Pigment {
     return color2;
   }
 
-  static toRGB_intern(pigments, ks2) {
+  static toRGB_intern(pigments, ks2, bilinear = false) {
     if (pigments.rlut) {
       let r = ks2[0];
       let g = ks2[1];
       let b = ks2[2];
       let h = ks2[3];
 
-      return pigments.sampleLUT(r, g, b, pigments.rlut, false);
+      return pigments.sampleLUT(r, g, b, pigments.rlut, bilinear);
     } else {
       return Pigment.toRGB(pigments, ks2);
     }
   }
 
-  static toRGB(pigments, ws, steps=32) {
+  static toRGB(pigments, ws, steps = 64) {
+    if (pigments[0].wasm) {//pigments.checkWasm()) {
+      return pigments[0].wasm.toRGB(pigments, ws);
+    }
+
     let w1 = lightWaveLengths[0];
     let w2 = lightWaveLengths[1];
 
@@ -669,7 +709,7 @@ export class Pigment {
     ret[3] = 0.0;
 
     ret.mulScalar(mul);
-    ret.load(color.xyz_to_rgb(ret[0], ret[1], ret[2], LINEAR_LUT));
+    ret.load(color.xyz_to_rgb(ret[0], ret[1], ret[2], true));
 
     ret[3] = 0.0;
 
@@ -677,22 +717,22 @@ export class Pigment {
     ret.mulScalar(COLOR_SCALE*pigments.colorScale);
     //}
 
+    if (!LINEAR_LUT) {
+      ret.load(color.linear_to_rgb(ret[0], ret[1], ret[2]));
+      ret[3] = 0.0;
+    }
+
     return ret;
   }
 
-  checkTables() {
-    for (let list of [this.k_wavelets, this.s_wavelets]) {
-      for (let w of list) {
-        w.checkTable();
+  updateWasm(ps) {
+    if (this.wasm) {
+      if (ps.useCustomKs) {
+        this.wasm.update(ps.k1, ps.k2, ps.colorScale);
+      } else {
+        this.wasm.update(START_REFL_K1, START_REFL_K2, ps.colorScale);
       }
     }
-
-    return this;
-  }
-
-  sort() {
-    this.s_wavelets.sort((a, b) => a.freq - b.freq);
-    this.k_wavelets.sort((a, b) => a.freq - b.freq);
   }
 
   loadSTRUCT(reader) {
@@ -702,26 +742,13 @@ export class Pigment {
 
   toJSON() {
     return JSON.stringify({
-      name       : this.name,
-      ks         : this.k_wavelets,
-      ss         : this.s_wavelets,
-      useWavelets: this.useWavelets,
-      pigment    : this.pigment
+      name   : this.name,
+      pigment: this.pigment
     });
   }
 
   loadJSON(json) {
     this.name = json.name;
-    this.k_wavelets.length = 0;
-    this.s_wavelets.length = 0;
-
-    for (let w of json.ks) {
-      this.k_wavelets.push(new PigmentWavelet().loadJSON(w));
-    }
-
-    for (let w of json.ss) {
-      this.s_wavelets.push(new PigmentWavelet().loadJSON(w));
-    }
 
     return this;
   }
@@ -729,35 +756,12 @@ export class Pigment {
   hash(digest = pdigest.reset()) {
     digest.add(this.name);
     digest.add(this.pigment);
-    digest.add(this.useWavelets);
     digest.add(this.updateGen);
-
-    for (let w of this.k_wavelets) {
-      w.hash(digest);
-    }
-
-    for (let w of this.s_wavelets) {
-      w.hash(digest);
-    }
 
     return digest.get();
   }
 
   reset(k = 0.7, decayk = 0.3, s = 0.2, decays = 0.1) {
-    this.k_wavelets.length = 0;
-    this.s_wavelets.length = 0;
-
-    //C.brush.pigment.reset(0.7, 0.3, 0.2, 0.1).scaleS(1.0);
-
-    let wid = lightWaveLengths[1] - lightWaveLengths[0];
-    this.addWavelet(this.s_wavelets, lightWaveLengths[0] + wid*s, wid*decays, 100.0);
-    this.addWavelet(this.k_wavelets, lightWaveLengths[0] + wid*k, wid*decayk, 10.0);
-
-    s += 0.05;
-    k += 0.05;
-    this.addWavelet(this.s_wavelets, lightWaveLengths[0] + wid*s, wid*decays, 100.0);
-    //this.addWavelet(this.k_wavelets, lightWaveLengths[0] + wid*k, wid*decayk, 100.0);
-
     return this;
   }
 
@@ -765,255 +769,29 @@ export class Pigment {
 
   }
 
-  findClosestRGB(steps = 10, rgb) {
-    if (rgb) {
-      let hsv = color.rgb_to_hsv(rgb[0], rgb[1], rgb[2]);
-      let hue = 1.0 - hsv[0];
-      hue = hue*0.2 + 0.6;
-
-      hue = lightWaveLengths[1]*(1.0 - hue) + lightWaveLengths[0]*hue;
-      console.log("HUE", hue);
-
-      this.s_wavelets[0].freq = hue - 0.1;
-      this.s_wavelets[1].freq = hue + 0.1;
-      //this.k_wavelets[0].mag = 0.5;
-      //this.k_wavelets[1].mag = 0.5;
-    }
-
-    for (let i = 0; i < steps; i++) {
-      this.findClosestRGB_intern(rgb, i);
-    }
-  }
-
   randomize(fac = 1.0) {
-    let lists = [this.k_wavelets, this.s_wavelets];
-
-    for (let ws of lists) {
-      for (let w of ws) {
-        w.freq += (Math.random() - 0.5)*fac*20.0;
-        w.decay += (Math.random() - 0.5)*fac*10.0;
-        w.mag += (Math.random() - 0.5)*fac;
-
-        w.mag = Math.max(w.mag, 0.0001);
-        w.decay = Math.max(w.decay, 0.0001);
-        w.freq = Math.max(w.freq, 0.0001);
-
-        w.freq = Math.min(w.freq, lightWaveLengths[1]);
-      }
-    }
-
     return this;
   }
 
-  findClosestRGB_intern(rgb, stepi) {
-    let errorf1 = () => {
-      let rgb = this.toRGB();
+  sort() {
 
-      let err = 0.0;
-
-      for (let i = 0; i < 3; i++) {
-        if (rgb[i] < 0.0) {
-          err += -rgb[i];
-        } else if (rgb[i] > 1.0) {
-          err += rgb[i] - 1.0;
-        }
-      }
-
-      err /= Math.min(0.001 + rgb[0]*rgb[0] + rgb[1]*rgb[1] + rgb[2]*rgb[2], 1.0);
-
-      return err;
-    }
-
-    let errorf2 = () => {
-      let rgb2 = this.toRGB();
-
-      let dx = rgb[0] - rgb2[0];
-      let dy = rgb[1] - rgb2[1];
-      let dz = rgb[2] - rgb2[2];
-
-      let f = dx*dx + dy*dy + dz*dz;
-
-      if (isNaN(f)) {
-        console.error(dx, dy, dz, rgb, rgb2);
-        this.toRGB();
-
-        throw new Error("NaN!");
-        return 0.0;
-      }
-
-      return Math.sqrt(f);
-    }
-
-    let lists = [this.s_wavelets, this.k_wavelets];
-    let pdata = pigment_data.pigmentKS[this.pigment];
-    let plists = [pdata.S, pdata.K];
-    let wavelens = pigment_data.wavelengths;
-
-    let errorf3 = () => {
-      let i = 0;
-      let err = 0.0;
-
-      for (let list of lists) {
-        for (let j = 0; j < plists[i].length; j++) {
-          let f2 = plists[i][j];
-          let f1 = this.evalWavelets(list, wavelens[j]);
-          err += (f1 - f2)**2;
-        }
-
-        i++;
-      }
-
-      return err;
-    }
-
-
-    for (let ws of lists) {
-      for (let w of ws) {
-        w.useTables = false;
-      }
-    }
-
-    let errorf = errorf3; //rgb ? errorf2 : errorf1;
-    let starterr;
-
-    let r1 = starterr = errorf();
-    //console.log("err", r1);
-
-
-    let gs = [];
-    let df = 0.0025;
-
-    let lists2 = [];
-    for (let list of lists) {
-      let list2 = [];
-      lists2.push(list2);
-
-      for (let w of list) {
-        list2.push(w.copy());
-      }
-    }
-
-    for (let ws of lists) {
-      for (let w of ws) {
-        let orig;
-
-        orig = w.freq;
-        w.freq += df;
-        gs.push((errorf() - r1)/df);
-        w.freq = orig;
-
-        orig = w.decay;
-        w.decay += df;
-        gs.push((errorf() - r1)/df);
-        w.decay = orig;
-
-        orig = w.mag;
-        w.mag += df;
-        gs.push((errorf() - r1)/df);
-        w.mag = orig;
-
-        orig = w.exp;
-        w.exp += df;
-        gs.push((errorf() - r1)/df);
-        w.exp = orig;
-
-        orig = w.offy;
-        w.offy += df;
-        gs.push((errorf() - r1)/df);
-        w.offy = orig;
-      }
-    }
-
-
-    let totg = 0.0;
-    for (let g of gs) {
-      totg += g*g;
-    }
-
-    //console.log(gs, totg, totg === 0.0);
-
-    if (totg === 0.0) {
-      r1 = 1.0; //will have to rely purely on stochastic
-    } else {
-      r1 /= totg;
-    }
-
-    if (isNaN(totg)) {
-      throw new Error("NaN!");
-    }
-
-    //console.log(gs);
-    let gi = 0;
-
-    //console.log(totg, r1);
-
-    let rk = Math.exp(-stepi*0.00005)*3.0*this.randfac;
-    let prob = Math.exp(-stepi*0.00025);
-
-    for (let ws of lists) {
-      let fac2 = ws === lists[1] ? 1.0 : 1.0;
-      let fac = -r1*0.75;
-
-      for (let w of ws) {
-        w.freq += gs[gi++]*fac*1.5 + fac2*(Math.random() - 0.5)*rk*4.0;
-        w.decay += gs[gi++]*fac + fac2*(Math.random() - 0.5)*rk*2.0;
-        w.mag += gs[gi++]*fac*0.5 + fac2*(Math.random() - 0.5)*rk;
-        w.exp += gs[gi++]*fac + fac2*(Math.random() - 0.5)*rk*0.5;
-        w.offy += gs[gi++]*fac*0.1 + fac2*(Math.random() - 0.5)*rk*0.1;
-
-        w.decay = Math.min(w.decay, (lightWaveLengths[1] - lightWaveLengths[0])*0.5);
-        w.decay = Math.max(w.decay, 25.0);
-
-        w.offy = Math.max(w.offy, 0.0);
-        w.freq = Math.min(Math.max(w.freq, lightWaveLengths[0]), lightWaveLengths[1]);
-        w.mag = Math.max(w.mag, 0.00001);
-        w.exp = Math.min(Math.max(w.exp, 1.5), 100.0);
-      }
-    }
-
-    let err = errorf();
-    if (Math.random() > 0.95) {
-      console.log("err", err.toFixed(3), rk.toFixed(4), prob.toFixed(4));
-    }
-
-    let bad = err > starterr;
-    bad = bad && Math.random() > prob;
-
-    if (bad) {// || this.toRGB().vectorLength() < 0.01) {
-      this.s_wavelets = lists2[0];
-      this.k_wavelets = lists2[1];
-    }
-
-    for (let ws of lists) {
-      for (let w of ws) {
-        w.useTables = true;
-      }
-    }
-
-    //this.sort();
   }
 
-  scaleK(mul = 1.0) {
-    for (let w of this.k_wavelets) {
-      w.mag *= mul;
-    }
+  checkTables() {
 
-    return this;
-  }
-
-  scaleS(mul = 1.0) {
-    for (let w of this.s_wavelets) {
-      w.mag *= mul;
-    }
-
-    return this;
   }
 
   copy() {
     let ret = new Pigment();
     let lists = [];
 
-    for (let list of [this.s_wavelets, this.k_wavelets]) {
+    ret.solveFac = this.solveFac;
+    ret.errorLimit = this.errorLimit;
+    ret.randfac = this.randfac;
+    ret.useHermite = this.useHermite;
+    ret.origHermite = this.origHermite;
+
+    for (let list of [this.s_hermite, this.k_hermite]) {
       let list2 = [];
 
       for (let w of list) {
@@ -1023,70 +801,472 @@ export class Pigment {
       lists.push(list2);
     }
 
-    ret.s_wavelets = lists[0];
-    ret.k_wavelets = lists[1];
     ret.pigment = this.pigment;
-    ret.useWavelets = this.useWavelets;
 
     return ret;
   }
 
-  addWavelet(wavelets, freq, decay, mag) {
-    wavelets.push(new PigmentWavelet(freq, decay, mag));
+  randHermite(ws) {
+    for (let ki = 0; ki < ws.length; ki += KTOT) {
+      let rx = (Math.random() - 0.5);
+      //let ry = (Math.random() - 0.5)*0.01;
+
+      ws[ki + KA] += rx;
+      ws[ki + KDA] += rx;
+    }
+
+    this.updateGen++;
   }
 
-  evalWavelet(wavelets, wi, f) {
-    let w = wavelets[wi];
-    return w.evaluate(f);
+  randHermites() {
+    this.randHermite(this.s_hermite);
+    this.randHermite(this.k_hermite);
   }
 
-  evalWavelets(ws, freq) {
-    if (!this.useWavelets) {
-      freq *= 0.1;
-      freq = Math.min(Math.max(freq, 38), 75);
-      freq -= 38;
+  resetHermite(ws) {
+    ws.length = 0;
+    ws.range = [1e17, -1e17];
 
-      let pdata = pigment_data.pigmentKS[this.pigment];
+    let pdata = pigment_data.pigmentKS[this.pigment];
+    let ks = ws === this.k_hermite ? pdata.K : pdata.S;
 
-      let i1 = ~~freq;
-      let t = Math.fract(freq);
+    for (let i = 0; i < ks.length; i++) {
+      let i2 = Math.min(i + 1, ks.length - 1);
 
-      if (i1 >= pigment_data.wavelengths.length - 1) {
-        i1 = pigment_data.wavelengths.length - 1;
-        return ws === this.k_wavelets ? pdata.K[i1] : pdata.S[i1];
-      } else {
-        let a = ws === this.k_wavelets ? pdata.K[i1] : pdata.S[i1];
-        let b = ws === this.k_wavelets ? pdata.K[i1 + 1] : pdata.S[i1 + 1];
+      let k1 = ks[i];
+      let k2 = ks[i2];
+      let wavelen = pigment_data.wavelengths[i];
+      let wavelen2 = pigment_data.wavelengths[i2];
 
-        return a + (b - a)*t;
+      let ki = ws.length;
+      ws.length += KTOT;
+
+      ws[ki + KA] = k1;
+      ws[ki + KDA] = i === ks.length - 1 ? 0.0 : (k2 - k1);
+      ws[ki + KFREQ] = wavelen;
+      ws[ki + KTMP] = 0;
+
+      ws.range[0] = Math.min(ws.range[0], wavelen);
+      ws.range[1] = Math.max(ws.range[1], wavelen);
+    }
+
+    this.updateGen++;
+  }
+
+  resetHermites() {
+    this.resetHermite(this.k_hermite);
+    this.resetHermite(this.s_hermite);
+  }
+
+  genIntTable(ws) {
+    let iws = new Float64Array(ws.length);
+
+    console.log("Generating integration table");
+
+    let sum = 0.0;
+
+    for (let ki = 0; ki < ws.length; ki++) {
+      let ki2 = Math.min(ki + KTOT, ws.length - KTOT);
+
+      let a = ws[ki + KA];
+      let d = ws[ki2 + KA];
+      let b = a + ws[ki + KDA]/3.0;
+      let c = d - ws[ki2 + KDA]/3.0;
+
+      let ia = icubic(a, b, c, d, 1.0);
+
+      iws[ki + IA] = ia;
+      iws[ki + IB] = b;
+      iws[ki + IC] = c;
+      iws[ki + ISUM] = sum;
+
+      sum += ia;
+    }
+
+    console.log("iws", iws);
+
+    return iws;
+  }
+
+  regenIntTables(freq) {
+    this.is_hermite = this.genIntTable(this.s_hermite);
+    this.ik_hermite = this.genIntTable(this.k_hermite);
+  }
+
+  intHermite(ws, freq) {
+    if (this._last_int_key !== this.updateGen) {
+      this._last_int_key = this.updateGen;
+      this.regenIntTables();
+    }
+
+    let iws = ws === this.s_hermite ? this.is_hermite : this.ik_hermite;
+
+    let ki;
+    for (let ki2 = 0; ki2 < ws.length - KTOT; ki2 += KTOT) {
+      if (ws[ki2 + KFREQ] > freq) {
+        break;
       }
     }
 
-    let f = 0.0;
-    let tot = 0.0;
-
-    for (let wi = 0; wi < ws.length; wi++) {
-      f += this.evalWavelet(ws, wi, freq);
-      tot += 1.0;
+    if (!ki) {
+      return iws[iws.length - KTOT + KA];
     }
 
-    f = tot !== 0.0 ? f/tot : 0.0;
+    let t = (freq - ws[ki + KFREQ])/(ws[ki + KTOT + KFREQ] - ws[ki + KFREQ]);
 
-    if (isNaN(f)) {
-      debugger;
-      console.error("NaN!");
-      return 0.0;
+    let ki1 = ki;
+    let ki2 = ki + 1;
+
+    let a = iws[ki1 + IA];
+    let b = iws[ki1 + IB];
+    let c = iws[ki1 + IC];
+    let d = iws[ki2 + IA];
+
+    let sum = iws[ki1 + ISUM];
+    return sum + icubic(a, b, c, d, t);
+  }
+
+  evalHermite(ws, freq) {
+    if (ws.length === 0) {
+      this.resetHermite(ws);
     }
 
-    return f;
+    if (!ws.range) {
+      let ls = pigment_data.wavelengths
+      ws.range = [ls[0], ls[ls.length - 1]];
+    }
+
+    let ki;
+
+    if (1) { //binary search
+      let start = 0;
+      let end = ws.length - KTOT;
+      let mid;
+      let i;
+
+      for (i = 0; (end - start) > KTOT && i < 100; i++) {
+        mid = (start/KTOT + end/KTOT)>>1;
+        mid *= KTOT;
+
+        if (ws[mid + KFREQ] === freq) {
+          ki = mid;
+          break;
+        } else if (ws[mid + KFREQ] < freq) {
+          start = mid;
+        } else {
+          end = mid;
+        }
+      }
+
+      if (mid > 0 && ws[mid + KFREQ] > freq) {
+        mid -= KTOT;
+      }
+
+      ki = mid < ws.length - KTOT ? mid : undefined;
+    } else {
+      for (let i = 0; i < ws.length - 1; i += KTOT) {
+        if (ws[i + KTOT + KFREQ] > freq) {
+          ki = i;
+          break;
+        }
+      }
+    }
+
+    if (ki === undefined) {
+      ki = ws.length - KTOT;
+      return ws[ki];
+    }
+
+    let t = (freq - ws[ki + KFREQ])/(ws[ki + KTOT + KFREQ] - ws[ki + KFREQ]);
+
+    let a = ws[ki];
+    let b = a + ws[ki + KDA]/3.0;
+    let d = ws[ki + KTOT];
+    let c = d - ws[ki + KTOT + KDA]/3.0;
+
+    let c1 = a + (b - a)*t;
+    let c2 = b + (c - b)*t;
+    let c3 = c + (d - c)*t;
+
+    let d1 = c1 + (c2 - c1)*t;
+    let d2 = c2 + (c3 - c2)*t;
+
+    return d1 + (d2 - d1)*t;
+  };
+
+  optimizeHermite(ws, errorLimit = 0.05) {
+    console.log("Optimize!");
+
+    let mean = 0.0, tot = 0.0, vari = 0;
+    let pdata = pigment_data.pigmentKS[this.pigment];
+    let origws = ws === this.k_hermite ? pdata.K : pdata.S;
+
+    for (let f of origws) {
+      mean += f;
+      tot++;
+    }
+
+    if (tot) {
+      mean /= tot;
+    }
+
+    for (let f of origws) {
+      vari += (f - mean)**2;
+    }
+
+    vari /= tot;
+    vari = Math.sqrt(vari);
+
+    errorLimit *= vari*this.errorLimit;
+
+    let removePoint = (ki) => {
+      for (let j = ki; j < ws.length - KTOT; j++) {
+        ws[j] = ws[j + KTOT];
+      }
+
+      ws.length -= KTOT;
+    }
+
+    let totpoint = (ws.length/KTOT)>>1;
+
+    for (let i = 1; i < totpoint; i++) {
+      let ki = i*KTOT;
+
+      if (ki >= ws.length - KTOT) {
+        break;
+      }
+
+      let s1 = Math.sign(ws[ki - KTOT + KDA]);
+      let s2 = Math.sign(ws[ki + KDA]);
+      let s3 = Math.sign(ws[ki + KTOT + KDA]);
+      if (s2 !== s3) {
+        continue;
+      }
+
+      let startws = ws.concat([]);
+
+      let freq = ws[ki + KFREQ];
+      let r1 = this.evalHermite(ws, freq);
+
+      let dmul = 1.0;
+
+      if (ki > 0 && dmul !== 0.0) {
+        let da = ws[ki + KTOT + KFREQ] - ws[ki + KFREQ];
+        let db = ws[ki + KFREQ] - ws[ki - KTOT + KFREQ];
+
+        dmul = (da + db)/db;
+      }
+
+      removePoint(ki);
+
+      if (ki > 0) {
+        ws[ki - KTOT + KDA] *= dmul;
+      }
+
+      let r2 = this.evalHermite(ws, freq);
+
+      let err = Math.abs(r1 - r2);
+
+      if (err > errorLimit) {
+        ws.length = startws.length;
+        ws.set(startws);
+      }
+
+      //console.log(err);
+    }
+
+    console.log("mean", mean, "variance", vari);
+
+    //this.optimizeStage2(ws);
+    this.updateGen++;
+  }
+
+  optimizeStage2(ws) {
+    let grads = [];
+
+    let rand = new util.MersenneRandom();
+    let freqRand = (Math.random() - 0.5) + 5.0;
+
+    let error = (freq) => {
+      let err = 0.0;
+
+      rand.seed(~~(freq*16.0));
+
+      let d = 25 + freqRand;// + (rand.random() - 0.5)*25.0;
+      let i1 = freq - d;
+      let i2 = freq + d + 1;
+
+      i1 = Math.max(i1, ws.range[0]);
+      i2 = Math.min(i2, ws.range[1] + 1);
+      let tot = 0;
+
+      for (let i = i1; i < i2; i += 0.25) {
+        let err2 = this.evaluate(ws, i, true) - this.evaluate(ws, i, false);
+
+        err += err2*err2;//Math.abs(err2);
+        tot++;
+      }
+
+      //return err;
+      return tot ? err : 0.0;
+    }
+
+    let df = 0.0001;
+    let solve = (freq) => {
+      let r1 = error(freq);
+      let totg = 0.0;
+      grads.length = 0;
+
+      for (let ki = 0; ki < ws.length; ki += KTOT) {
+        for (let i = 0; i < KTOT; i++) {
+          let orig = ws[ki + i];
+
+          ws[ki + i] += df;
+          let r2 = error(freq);
+          ws[ki + i] = orig;
+
+          let g = (r2 - r1)/df;
+          totg += g*g;
+
+          grads.push(g);
+        }
+      }
+
+      if (totg < 0.00001) {
+        return r1;
+      }
+
+      r1 /= totg;
+
+      let gk = 1.0;
+
+      gk = r1*this.solveFac; //0.01 / Math.sqrt(totg);
+
+      for (let ki = 0; ki < ws.length; ki += KTOT) {
+        for (let j = 0; j < KTOT; j++) {
+          let bad = false;//ki === 0 || ki === ws.length - KTOT;
+          //bad = bad && (j === KFREQ || j === KA);
+
+          //bad = bad || j === KFREQ;
+
+          //bad = bad || j !== KA;
+
+          if (bad) {
+            continue;
+          }
+
+          ws[ki + j] += -grads[ki + j]*gk;
+        }
+
+        //ws[ki+KFREQ] = Math.min(Math.max(ws[ki+KFREQ], ws.range[0]), ws.range[1]);
+      }
+
+      //console.log(grads.map(f => f.toFixed(3)));
+      return error(freq);
+    }
+
+    for (let step = 0; step < 5; step++) {
+      let err = 0.0;
+
+      for (let ki = KTOT; ki < ws.length; ki += KTOT) {
+        let err2 = solve(ws[ki + KFREQ]);
+        //console.log(ws[ki + KFREQ].toFixed(4), err2);
+
+        err += Math.abs(err2);
+      }
+
+      err /= ws.length/KTOT;
+      console.log("err: ", err.toFixed(3));
+    }
+
+    this.updateGen++;
+  }
+
+  fullSolveHermite() {
+    for (let i = 0; i < 2; i++) {
+      this.optimizeHermite(this.s_hermite);
+      this.optimizeHermite(this.k_hermite);
+    }
+
+    for (let j = 0; j < 5; j++) {
+      this.optimizeStage2(this.s_hermite);
+      this.optimizeStage2(this.k_hermite);
+    }
+  }
+
+  integrate(ws, freq, useHermite = this.useHermite) {
+    if (useHermite) {
+      let f = this.intHermite(ws, freq);
+
+      if (isNaN(f)) {
+        console.error("NaN!");
+        debugger;
+
+        return 0.0;
+      }
+
+      return f;
+    }
+
+    let steps = 32;
+    let s = pigment_data.wavelengths[0], ds = (freq - s)/steps;
+    let sum = 0.0;
+
+    for (let i = 0; i < steps; i++, s += ds) {
+      sum += this.evaluate(ws, s, useHermite)*ds;
+    }
+
+    return sum;
+  }
+
+  evaluate(ws, freq, useHermite = this.useHermite, origHermite = this.origHermite) {
+    if (useHermite) {
+      if (origHermite && !insideSolver) {
+        for (let h of pigment_data.pigmentHermite) {
+          if (h.pigment === this.pigment) {
+            ws = ws === this.k_hermite ? h.K : h.S;
+          }
+        }
+      }
+
+      let f = this.evalHermite(ws, freq);
+
+      if (isNaN(f)) {
+        console.error("NaN!");
+        debugger;
+
+        return 0.0;
+      }
+
+      return f;
+    }
+
+    freq *= 0.1;
+    freq = Math.min(Math.max(freq, 38), 75);
+    freq -= 38;
+
+    let pdata = pigment_data.pigmentKS[this.pigment];
+
+    let i1 = ~~freq;
+    let t = Math.fract(freq);
+
+    if (i1 >= pigment_data.wavelengths.length - 1) {
+      i1 = pigment_data.wavelengths.length - 1;
+      return ws === this.k_hermite ? pdata.K[i1] : pdata.S[i1];
+    } else {
+      let a = ws === this.k_hermite ? pdata.K[i1] : pdata.S[i1];
+      let b = ws === this.k_hermite ? pdata.K[i1 + 1] : pdata.S[i1 + 1];
+
+      return a + (b - a)*t;
+    }
   }
 
   K(wavelen, extras, ws) { //absorbance
-    return this.evalWavelets(this.k_wavelets, wavelen);
+    return this.evaluate(this.k_hermite, wavelen);
   }
 
   S(wavelen) { //scattering
-    return this.evalWavelets(this.s_wavelets, wavelen);
+    return this.evaluate(this.s_hermite, wavelen);
   }
 
   R(wavelen, extras) {
@@ -1098,7 +1278,26 @@ export class Pigment {
     }
 
     let ratio = K/S;
-    return 1.0 + ratio - Math.sqrt(ratio*ratio + 2.0*ratio);
+    return 1.0 + ratio - Math.sqrt(Math.abs(ratio*ratio + 2.0*ratio));
+  }
+
+  iR(wavelen) {
+    /*
+
+    on factor;
+    off period;
+
+    operator K, S1, iK, iS1;
+
+    forall s let int(K(s), s) = iK(s);
+    forall s let int(S1(s), s) = iS1(s);
+
+    ratio := K(w) / S1(w);
+    fr := 1.0 + ratio - sqrt(ratio*ratio + 2.0*ratio);
+
+    int(fr, w);
+
+    * */
   }
 
   toRGB() {
@@ -1114,11 +1313,14 @@ export class Pigment {
 Pigment.STRUCT = `
 Pigment {
   name          : string; 
-  k_wavelets    : array(PigmentWavelet);
-  s_wavelets    : array(PigmentWavelet);
+  k_hermite     : array(float);
+  s_hermite     : array(float);
   randfac       : double;
   pigment       : int;
-  useWavelets   : bool;
+  useHermite    : bool;
+  origHermite   : bool;
+  errorLimit    : float;
+  solveFac      : float;
 }
 `;
 simple.DataModel.register(Pigment);
@@ -1134,6 +1336,7 @@ export class PigmentSet extends Array {
 
     this.colorScale = 1.0;
 
+    this.blurAll = false;
     this.genDimen = 64;
     this.blurFilledInPixels = true;
     this.optimizeFilledIn = true;
@@ -1163,6 +1366,8 @@ export class PigmentSet extends Array {
       .range(0, 375)
       .slideSpeed(3.0);
 
+    st.bool("blurAll", "blurAll", "Blur All");
+
     st.bool("blurFilledInPixels", "blurFilledInPixels", "Blur Filled In");
     st.bool("optimizeFilledIn", "optimizeFilledIn", "Opt Filled In");
     st.int("optSteps", "optSteps", "Opt Steps").noUnits().range(1, 32).slideSpeed(1.5);
@@ -1188,7 +1393,7 @@ export class PigmentSet extends Array {
     st.float("colorScale", "colorScale", "Output Scale", "Unphysically scale pigment colors in LUT generation")
       .noUnits()
       .range(0.0, 5.0)
-      .on('change', function() {
+      .on('change', function () {
         for (let p of this.dataref) {
           p.updateGen++;
         }
@@ -1208,6 +1413,31 @@ export class PigmentSet extends Array {
         return list[Symbol.iterator]();
       }
     })
+  }
+
+  checkWasm() {
+    if (wasmReady() && this.length === 4) {
+      for (let i = 0; i < this.length; i++) {
+        let p = this[i];
+
+        if (!p.wasm || p.pigment !== p.wasm.pigment) {
+          let scale = this.colorScale ?? 1.0;
+          p.wasm = WasmPigment.get(pigment_data, p.pigment, this.k1 ?? 0.03, this.k2 ?? 0.65, scale);
+        }
+      }
+
+      return true;
+    }
+
+    return false;
+  }
+
+  updateWasm() {
+    this.checkWasm();
+
+    for (let p of this) {
+      p.updateWasm(this);
+    }
   }
 
   push(p) {
@@ -1230,6 +1460,8 @@ export class PigmentSet extends Array {
     ret.blurRadius = this.blurRadius;
     ret.optimizeFilledIn = this.optimizeFilledIn;
     ret.colorScale = this.colorScale;
+    ret.blurAll = this.blurAll;
+    ret.doFillInLut = this.doFillInLut;
 
     for (let item of this) {
       ret.push(item.copy());
@@ -1239,25 +1471,6 @@ export class PigmentSet extends Array {
   }
 
   checkLUT() {
-    if (this.haveLoadedTable && this.rlut && this.lut) {
-      return;
-    }
-
-    if (!this.lut) {
-      this.makeLUTs();
-      return;
-    }
-
-    let hash = new util.HashDigest();
-    for (let p of this) {
-      p.hash(hash);
-    }
-
-    hash = hash.get();
-    if (hash !== this._last_hash) {
-      this._last_hash = hash;
-      this.makeLUTs();
-    }
   }
 
   upscaleLUT2(lut, newdimen, isNormed = false) {
@@ -1468,12 +1681,14 @@ export class PigmentSet extends Array {
 
   sampleLUT(r, g, b, lut = this.lut, bilinear = TRILINEAR_LUT, isNormed = true, sampleUnified = true) {
     if (!lut) {
-      this.makeLUTs();
-      lut = this.lut;
+      return new Vector4();
+
+      //this.makeLUTs();
+      //lut = this.lut;
     }
 
     if (sampleUnified && this.unifiedLut) {
-      return this._sampleUnifiedLut(r, g, b, lut !== this.lut);
+      //return this._sampleUnifiedLut(r, g, b, lut !== this.lut);
     }
 
     r = Math.min(Math.max(r, 0.0), 1.0)*0.9999;
@@ -1538,6 +1753,14 @@ export class PigmentSet extends Array {
     let ret = sampleRets.next();
 
     let dimen = this.lut.dimen;
+
+    x *= dimen - 1;
+    y *= dimen - 1;
+    z *= dimen - 1;
+
+    x = ~~x;
+    y = ~~y;
+    z = ~~z;
 
     x = Math.min(Math.max(x, 0), dimen - 1);
     y = Math.min(Math.max(y, 0), dimen - 1);
@@ -1921,8 +2144,15 @@ export class PigmentSet extends Array {
   makeLUTImage(lut, dimen, makeRev = false) {
     if (!lut && this.lut && this.rlut && this.lut.dimen === this.rlut.dimen) {
       return this.makeUnifiedLUTImage();
+    } else {
+      console.error("SINGLE LUT!", lut, this.rlut, this.lut.dimen, this.rlut ? this.rlut.dimen : undefined);
     }
 
+    if (!lut) {
+      lut = this.lut;
+    }
+
+    /*
     if (dimen !== undefined) {
       if (!makeRev) {
         this.makeLUTs(dimen)
@@ -1936,7 +2166,7 @@ export class PigmentSet extends Array {
     if (!lut) {
       this.makeLUTs();
       lut = makeRev ? this.rlut : this.lut;
-    }
+    }*/
 
     if (!dimen) {
       dimen = lut ? lut.dimen : 32;
@@ -2003,6 +2233,13 @@ export class PigmentSet extends Array {
     canvas.toBlob((blob) => {
       let url = URL.createObjectURL(blob);
 
+      let a = document.createElement("a");
+      a.setAttribute("href", url);
+      a.href = url;
+      a.setAttribute("download", "lut.png");
+
+      a.click();
+
       console.log(url);
       window.open(url);
     });
@@ -2055,7 +2292,9 @@ export class PigmentSet extends Array {
             c[1] = lut[li + 1];
             c[2] = lut[li + 2];
 
-            //c = color.linear_to_rgb(c[0], c[1], c[2]);
+            if (lut !== luts[1]) {
+              //  c = color.linear_to_rgb(c[0], c[1], c[2]);
+            }
 
             idata[idx] = c[0]*255;
             idata[idx + 1] = c[2]*255;
@@ -2068,7 +2307,9 @@ export class PigmentSet extends Array {
       }
     }
 
-    _appstate.ctx.canvas.updateUnifiedLut(image, dimen);
+    if (_appstate.ctx.canvas) {
+      _appstate.ctx.canvas.updateUnifiedLut(image, dimen);
+    }
 
     g.putImageData(image, 0, 0);
 
@@ -2076,6 +2317,13 @@ export class PigmentSet extends Array {
 
     canvas.toBlob((blob) => {
       let url = URL.createObjectURL(blob);
+
+      let a = document.createElement("a");
+      a.setAttribute("href", url);
+      a.href = url;
+      a.setAttribute("download", "lut.png");
+
+      a.click();
 
       console.log(url);
       window.open(url);
@@ -2211,6 +2459,121 @@ export class PigmentSet extends Array {
     return lut;
   }
 
+  laplacian(lut, swaplut, used) {
+    let dimen = lut.dimen;
+
+    const blurAll = this.blurAll;
+
+    let DVTOT = 4;
+
+    if (!lut.dv) {
+      lut.dv = new Float64Array(dimen*dimen*dimen*DVTOT);
+      lut.dv.fill(0.0);
+    }
+
+    let dv = lut.dv;
+    let lut2 = swaplut;
+
+    let offs = [
+      [0, 0, 0],
+
+      [-1, 0, 0],
+      [1, 0, 0],
+
+      [0, 1, 0],
+      [0, -1, 0],
+
+      [0, 0, 1],
+      [0, 0, -1]
+    ];
+
+    let mul = 1.0/offs.length;
+    let dimen1 = dimen - 1;
+
+    for (let x = 0; x < dimen; x++) {
+      for (let y = 0; y < dimen; y++) {
+        for (let z = 0; z < dimen; z++) {
+          let idx = z*dimen*dimen + y*dimen + x;
+          let li = idx*LTOT;
+
+          if (!blurAll && !used[idx]) {
+            continue;
+          }
+
+          let sumr = 0.0, sumg = 0.0, sumb = 0.0;
+          let totw = 0.0;
+
+          for (let off of offs) {
+            let x2 = x + off[0];
+            let y2 = y + off[1];
+            let z2 = z + off[2];
+
+            x2 = Math.min(Math.max(x2, 0.0), dimen1);
+            y2 = Math.min(Math.max(y2, 0.0), dimen1);
+            z2 = Math.min(Math.max(z2, 0.0), dimen1);
+
+            let idx2 = z2*dimen*dimen + y2*dimen + x2;
+            let li2 = idx2*LTOT;
+
+            let w = 1.0;
+
+            if (!used[idx2]) {
+              w = 10000.0;
+            }
+
+            sumr += lut2[li2]*w;
+            sumg += lut2[li2 + 1]*w;
+            sumb += lut2[li2 + 2]*w;
+            totw += w;
+          }
+
+          mul = totw !== 0.0 ? 1.0/totw : 0.0;
+
+          sumr *= mul
+          sumg *= mul;
+          sumb *= mul;
+
+          if (0) {
+            let di = idx*DVTOT;
+
+            let dr1 = dv[di];
+            let dg1 = dv[di + 1];
+            let db1 = dv[di + 2];
+
+            let fac = 0.5;
+
+            sumr += dr1*fac;
+            sumg += dg1*fac;
+            sumb += db1*fac;
+
+            //sumr = Math.min(Math.max(sumr, 0.0), 1.0);
+            //sumg = Math.min(Math.max(sumg, 0.0), 1.0);
+            //sumb = Math.min(Math.max(sumb, 0.0), 1.0);
+
+            let dr2 = sumr - lut[li];
+            let dg2 = sumg - lut[li + 1];
+            let db2 = sumb - lut[li + 2];
+
+            let fac2 = 0.5;
+            dr2 += (dr1 - dr2)*fac2;
+            dg2 += (dg1 - dg2)*fac2;
+            db2 += (db1 - db2)*fac2;
+
+            dv[di] = dr2;
+            dv[di + 1] = dg2;
+            dv[di + 2] = db2;
+          }
+
+          lut[li] = sumr;
+          lut[li + 1] = sumg;
+          lut[li + 2] = sumb;
+        }
+      }
+    }
+
+    return lut;
+  }
+
   swapLUTs() {
     let tmp = this.lut;
     this.lut = this.rlut;
@@ -2238,6 +2601,8 @@ export class PigmentSet extends Array {
                 reporter         = function (msg, percent) {
                 }) {
     let ds = 1.0/(dimen - 1);
+
+    this.updateWasm();
 
     if (this.useCustomKs) {
       window.REFL_K1 = this.k1;
@@ -2406,6 +2771,39 @@ export class PigmentSet extends Array {
       }
     }
 
+    if (this.blurFilledInPixels) {
+      console.log("Blurring");
+      reporter("Blur", 0);
+
+      let swapLut = new Float32Array(lut);
+      swapLut.dimen = dimen;
+
+      let steps = this.blurRadius*32;
+      let used2 = new Uint16Array(usedcpy);
+
+      for (let i = 0; i < usedcpy.length; i++) {
+        used2[i] = !used2[i];
+      }
+
+      for (let i = 0; i < steps; i++) {
+        this.laplacian(lut, swapLut, used2);
+
+        if (i !== steps - 1) {
+          let tmp = swapLut;
+          swapLut = lut;
+          lut = tmp;
+
+          this.lut = lut;
+        }
+
+        reporter("Blur", (i + 1)/steps);
+        yield;
+      }
+
+      lut.dv = undefined;
+      reporter("Blur", 1.0);
+    }
+
     if (this.optimizeFilledIn) {
       for (let step of this.optimizeLutFillIn(lut, usedcpy, reporter)) {
         yield;
@@ -2432,7 +2830,7 @@ export class PigmentSet extends Array {
   findMapping(mix, color, tmp1, tmp2) {
     let err;
 
-    for (let i=0; i<this.optSteps; i++) {
+    for (let i = 0; i < this.optSteps; i++) {
       err = this.findMapping_solve(mix, color, tmp1, tmp2);
     }
 
@@ -2443,9 +2841,9 @@ export class PigmentSet extends Array {
     let error = () => {
       let rgb = Pigment.toRGB(this, mix, 8);
 
-      let dx = Math.abs(rgb[0]-color[0]);
-      let dy = Math.abs(rgb[1]-color[1]);
-      let dz = Math.abs(rgb[2]-color[2]);
+      let dx = Math.abs(rgb[0] - color[0]);
+      let dy = Math.abs(rgb[1] - color[1]);
+      let dz = Math.abs(rgb[2] - color[2]);
 
       let f;
       //f = dx+dy+dz;
@@ -2461,11 +2859,11 @@ export class PigmentSet extends Array {
     let gs = tmp1;
     let totg = 0.0;
 
-    for (let i=0; i<4; i++) {
+    for (let i = 0; i < 4; i++) {
       let orig = mix[i];
       mix[i] += df;
 
-      gs[i] = (error() - r1) / df;
+      gs[i] = (error() - r1)/df;
 
       mix[i] = orig;
       totg += gs[i]*gs[i];
@@ -2479,15 +2877,15 @@ export class PigmentSet extends Array {
 
     let tot = 0.0;
 
-    for (let i=0; i<4; i++) {
+    for (let i = 0; i < 4; i++) {
       mix[i] += -r1*gs[i]*0.7;
       mix[i] = Math.max(mix[i], 0.0);
       tot += mix[i];
     }
 
     if (tot) {
-      tot = 1.0 / tot;
-      for (let i=0; i<4; i++) {
+      tot = 1.0/tot;
+      for (let i = 0; i < 4; i++) {
         mix[i] *= tot;
       }
     }
@@ -2517,25 +2915,25 @@ export class PigmentSet extends Array {
             continue;
           }
 
-          color[0] = x / (dimen - 1) + (Math.random()-0.5)/dimen;
-          color[1] = y / (dimen - 1) + (Math.random()-0.5)/dimen;
-          color[2] = z / (dimen - 1) + (Math.random()-0.5)/dimen;
+          color[0] = x/(dimen - 1) + (Math.random() - 0.5)/dimen;
+          color[1] = y/(dimen - 1) + (Math.random() - 0.5)/dimen;
+          color[2] = z/(dimen - 1) + (Math.random() - 0.5)/dimen;
 
           let li = idx*LTOT;
           mix[0] = lut[li];// + Math.random()*0.001;
-          mix[1] = lut[li+1];// + Math.random()*0.001;
-          mix[2] = lut[li+2];// + Math.random()*0.001;
+          mix[1] = lut[li + 1];// + Math.random()*0.001;
+          mix[2] = lut[li + 2];// + Math.random()*0.001;
           mix[3] = 1.0 - mix[0] - mix[1] - mix[2];
 
           let err = this.findMapping(mix, color, tmp1, tmp2);
 
           lut[li] = mix[0];
-          lut[li+1] = mix[1];
-          lut[li+2] = mix[2];
+          lut[li + 1] = mix[1];
+          lut[li + 2] = mix[2];
         }
       }
 
-      if (z % 4 === 0) {
+      if (z%4 === 0) {
         reporter("Optimize", (z + 1)/dimen);
         yield;
       }
@@ -2899,6 +3297,8 @@ export class PigmentSet extends Array {
 
     reporter("Fill", 1.0);
 
+    return; //XXX
+
     if (!blur) {
       return;
     }
@@ -3088,6 +3488,9 @@ PigmentSet {
   createReverseLut   : bool;
   upscaleGoal        : int;
   lutQuality         : float;
+  doFillInLut        : bool;
+  
+  blurAll            : bool;
 }
 `;
 simple.DataModel.register(PigmentSet);

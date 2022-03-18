@@ -29,6 +29,13 @@ export class PaletteEditor extends Container {
     this.label("Palette Editor");
   }
 
+  static define() {
+    return {
+      tagname: "palette-editor-x",
+      style  : "palette-editor"
+    }
+  }
+
   rebuild() {
     if (!this.ctx) {
       return;
@@ -85,8 +92,8 @@ export class PaletteEditor extends Container {
         }
       }
     }
-    for (let i=0; i<pal.length; i++) {
-      if (i > 0 && (i % 5) === 0) {
+    for (let i = 0; i < pal.length; i++) {
+      if (i > 0 && (i%5) === 0) {
         row = this.row();
       }
 
@@ -95,7 +102,7 @@ export class PaletteEditor extends Container {
 
     loadUIData(this, uidata);
 
-    for (let i=0; i<3; i++) {
+    for (let i = 0; i < 3; i++) {
       this.flushUpdate();
     }
   }
@@ -116,19 +123,15 @@ export class PaletteEditor extends Container {
       this.rebuild();
     }
   }
-
-  static define() {
-    return {
-      tagname : "palette-editor-x",
-      style : "palette-editor"
-    }
-  }
 }
+
 UIBase.register(PaletteEditor);
 
 export class CanvasEditor extends simple.Editor {
   constructor() {
     super();
+
+    this.drawGen = 0;
 
     this.genDimen = 40;
     this.fillInLut = true;
@@ -216,37 +219,66 @@ export class CanvasEditor extends simple.Editor {
     this.glSize.load(this.size).mulScalar(dpi).floor();
     this.glPos.load(this.pos).mulScalar(dpi).floor();
 
-    let gl = _appstate.gl;
+    let tmat = new Matrix4();
 
-    gl.disable(gl.DEPTH_TEST);
-    gl.disable(gl.BLEND);
-    gl.disable(gl.CULL_FACE);
-    gl.enable(gl.SCISSOR_TEST);
-
-    gl.depthMask(false);
+    let r = this.header.getBoundingClientRect();
+    let offy = 0.0;
+    if (r) {
+      this.glPos[1] += ~~(r.height*dpi);
+      this.glSize[1] -= ~~(r.height*dpi);
+      //offy = -r.height*dpi/this.glSize[1]*2.0;
+      //offy = offy ? 1.0 / offy : 0.0;
+      //offy = 0.0;
+      //offy /= this.glSize[1]*2.0;
+    }
 
     let w = this.ctx.canvas.width;
     let h = this.ctx.canvas.height;
 
+    let gl = _appstate.gl;
+
+    this.glPos[1] += this.glSize[1];
+    this.glPos[1] = gl.canvas.height - this.glPos[1];
+
+    let matrix = new Matrix4();
+    this.drawMatrix = matrix;
+
+    let aspect = this.glSize[1]/this.glSize[0];
+    const d = 1.0;
+    matrix.scale(1.0/this.glSize[0]*d, 1.0/this.glSize[1]*d, 1.0);
+
+    tmat.translate(0.0, offy*d, 0.0);
+    matrix.preMultiply(tmat);
+
+    gl.disable(gl.DEPTH_TEST);
+    gl.disable(gl.BLEND);
+    gl.disable(gl.CULL_FACE);
+    //gl.enable(gl.SCISSOR_TEST);
+
+    gl.depthMask(false);
+
     gl.scissor(this.glPos[0], this.glPos[1], this.glSize[0], this.glSize[1]);
     //gl.viewport(this.glPos[0], this.glPos[1], this.glSize[0], this.glSize[1]);
-    gl.viewport(this.glPos[0], this.glPos[1] + this.glSize[1] - h, w, h);
+    gl.viewport(this.glPos[0], this.glPos[1], this.glSize[0], this.glSize[1]);
 
     gl.clearColor(1.0, 0.7, 0.4, 1.0);
     gl.clear(gl.COLOR_BUFFER_BIT);
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 
-    this.ctx.canvas.draw(gl);
+    this.ctx.canvas.draw(gl, this);
   }
 
   draw() {
     this.animReq = undefined;
 
     if (WEBGL_PAINTER) {
+      this.drawGen++;
       this.drawGl();
       return;
     }
+
+    this.drawGen++;
 
     let dpi = UIBase.getDPI();
 
@@ -321,9 +353,14 @@ export class CanvasEditor extends simple.Editor {
 
     strip.tool("canvas.reset()");
 
+    strip.useIcons(false);
+    strip.tool("canvas.test()");
+
     header = header.row();
 
     header.prop("canvas.brush.color");
+    header.tool("brush.swap_colors");
+    header.prop("canvas.brush.color2");
     header.prop("canvas.brush.radius");
     header.prop("canvas.brush.strength");
 
@@ -336,7 +373,7 @@ export class CanvasEditor extends simple.Editor {
         _proptab = con;
       }
 
-      if (_i % 2 === 0) {
+      if (_i%2 === 0) {
         con = _proprow = _proptab.row();
       } else {
         con = _proprow;
@@ -418,14 +455,21 @@ export class CanvasEditor extends simple.Editor {
     let selector = UIBase.createElement("brush-selector-x");
     //delay initialization of selector
     //this.doOnce(() => {
-      selector.setAttribute("datapath", "canvas.brush");
-      selector.setAttribute("slotpath", "canvas.activeBrush");
+    selector.setAttribute("datapath", "canvas.brush");
+    selector.setAttribute("slotpath", "canvas.activeBrush");
     //});
     tab.add(selector);
 
     makeBrushProp(tab, "radius");
     makeBrushProp(tab, "strength");
-    tab.prop("canvas.brush.color");
+
+    let crow = tab.row();
+    crow.prop("canvas.brush.color");
+    crow.prop("canvas.brush.color2");
+
+    let cpreview = UIBase.createElement("color-preview-x");
+    cpreview.setAttribute("datapath", "canvas.brush");
+    tab.add(cpreview);
 
     let pal = UIBase.createElement("palette-editor-x");
     pal.setAttribute("datapath", "palettes[0]");
@@ -460,251 +504,27 @@ export class CanvasEditor extends simple.Editor {
     tab.prop("canvas.paintPigmentsDirect");
     tab.prop("canvas.triLinearSample");
 
-    let names = ["C", "M", "Y", "K"];
+    tab = sidebar.tab("Pigments");
 
-    tab = sidebar.tab("Pigment");
+    let col = tab.col();
 
-    this.solver = undefined;
+    col.style["align-self"] = "flex-start";
+    col.style["min-width"] = "400px";
 
-    panel = tab.panel("Solver");
-
-    let button2 = panel.button("Optimize", () => {
-      if (this.solver) {
-        this.solver.stop();
-        this.solver = undefined;
-        button2.name = "Optimize";
-      } else {
-        this.solver = new Optimizer(this.ctx.brush.pigments, this.ctx.settings.solverSettings);
-        this.solver.start();
-        button2.name = "Stop";
-      }
-    });
-
-    panel.dataPrefix = "settings.solverSettings";
-
-    let row = panel.row();
-    row.label("Error:")
-    row.pathlabel("errorOut");
-
-    panel.prop("flag");
-    panel.prop("randFac");
-    panel.prop("newtonStep");
-    panel.prop("subPoints");
-    panel.prop("highPassFac");
-
-    button2.description = "Optimize pigment spectral at a data level";
-
+    let name = "CMYK";
     for (let i = 0; i < 4; i++) {
-      let panel = tab.panel(names[i]);
+      let panel = col.panel(name[i]);
 
-      let pedit = document.createElement("pigment-editor-x");
-      panel.add(pedit);
-      pedit.setAttribute("datapath", `canvas.brush.pigments[${i}]`);
+      let ped = UIBase.createElement("pigment-editor-x");
+      ped.setAttribute("datapath", `pigments.pigments[${i}]`);
+      panel.add(ped);
 
       panel.closed = true;
     }
 
-    tab = sidebar.tab("LUT");
-
-    let lutimage = undefined;
-    let canvas = document.createElement("canvas");
-    let g = canvas.getContext("2d");
-
-    canvas.width = canvas.height = 256;
-
-    let render = () => {
-      lutimage = window.renderedLut;
-
-      g.clearRect(0, 0, canvas.width, canvas.height);
-      g.drawImage(lutimage, 0, 0, canvas.width, canvas.height);
-
-    }
-    tab.shadow.appendChild(canvas);
-    tab.update.after(() => {
-      if (window.renderedLut !== lutimage) {
-        render();
-      }
-    });
-
-    tab.button("Render", () => {
-      this.ctx.canvas.pigments.renderLUTCube();
-    });
-
-    let bindView = () => {
-      let getmouse = (e) => {
-        let r = canvas.getBoundingClientRect();
-
-        let w = canvas.width/UIBase.getDPI();
-
-        let x = (e.x - r.x)/w;
-        let y = (e.y - r.y)/w;
-
-        return new Vector2([x, y]);
-      }
-
-      let modalstate;
-
-      let endModal = () => {
-        if (modalstate) {
-          popModalLight(modalstate);
-          modalstate = undefined;
-          this.ctx.canvas.pigments._cameraDragging = false;
-          this.ctx.canvas.pigments.renderLUTCube();
-        }
-      }
-
-      let last_mpos = new Vector2();
-
-      canvas.addEventListener("pointerdown", (e) => {
-        console.log("Canvas mouse down!");
-
-        last_mpos = getmouse(e);
-
-        if (e.button === 0) {
-          e.preventDefault();
-        }
-
-        if (modalstate) {
-          return;
-        }
-
-        let workcanvas = this.ctx.canvas;
-        workcanvas.pigments._cameraDragging = true;
-
-        e.stopPropagation();
-
-        modalstate = pushModalLight({
-          on_pointerup(e) {
-            endModal();
-          },
-
-          on_pointercancel(e) {
-            endModal();
-          },
-
-          on_pointermove(e) {
-            let mpos = getmouse(e);
-            mpos.sub(last_mpos);
-
-            last_mpos.load(getmouse(e));
-
-            let cam = workcanvas.pigments.renderCamera;
-
-            let mat = new Matrix4();
-
-            let mat2 = new Matrix4(cam.cameramat);
-            mat2.makeRotationOnly();
-            let imat2 = new Matrix4(mat2);
-
-            imat2.invert();
-
-            //mpos.mulScalar(0.1);
-
-            mat.euler_rotate(mpos[1], -mpos[0], 0.0);
-            mat.preMultiply(imat2);
-            mat.multiply(mat2);
-
-            cam.pos.multVecMatrix(mat);
-            cam.target.multVecMatrix(mat);
-            cam.up.multVecMatrix(mat);
-            cam.regen_mats(1.0);
-
-            workcanvas.pigments.renderLUTCube();
-            render();
-          },
-          on_keydown(e) {
-            if (e.keyCode === keymap["Escape"]) {
-              endModal();
-            }
-          }
-        });
-      });
-    }
-
-    bindView();
-
-    panel = tab.panel("Create LUT");
-    panel.useIcons(false);
-
-    panel.dataPrefix = "pigments";
-
-    panel.prop("genDimen");
-    panel.prop("fillInLut");
-    panel.prop("blurFilledInPixels");
-    panel.prop("blurRadius");
-    panel.prop("optimizeFilledIn");
-    panel.prop("optSteps");
-    panel.prop("createReverseLut");
-    panel.prop("upscaleGoal");
-    panel.prop("lutQuality");
-    panel.prop("colorScale");
-
-    let panel2 = tab.panel("Specular");
-
-    let k1, k2;
-
-    panel2.dataPrefix = "";
-    panel2.prop("pigments.useCustomKs").update.after(() => {
-      let disabled = !this.ctx.api.getValue(this.ctx, "pigments.useCustomKs")
-
-      k1.disabled = disabled;
-      k2.disabled = disabled;
-    });
-    k1 = panel2.prop("pigments.k1");
-    k2 = panel2.prop("pigments.k2");
-
-    panel2.button("Reload K1/K2", () => {
-      panel2.setPathValueUndo(this.ctx, "pigments.k1", START_REFL_K1);
-      panel2.setPathValueUndo(this.ctx, "pigments.k2", START_REFL_K2);
-    });
-
-    let job = undefined;
-    let gen = undefined;
-
-    let createButton = panel.button("Create LUT", () => {
-      if (job !== undefined) {
-        createButton.name = "Create LUT";
-        window.clearInterval(job);
-        job = undefined;
-        gen = undefined;
-        return;
-      }
-
-      createButton.name = "Cancel";
-
-      let reporter = (msg, percent) => {
-        this.ctx.progressBar(msg, percent);
-      }
-
-      let this2 = this;
-      function* Job() {
-        let ps = this2.ctx.canvas.pigments;
-
-        let gen1 = this2.ctx.canvas.pigments.makeLUTsJob(ps.genDimen, ps.doFillInLut, ps.upscaleGoal, ps.lutQuality, !ps.createReverseLut, reporter);
-
-        for (let step of gen1) {
-          yield;
-        }
-
-        this2.ctx.canvas.pigments.makeLUTImage();
-      }
-
-      gen = Job();
-      job = window.setInterval(() => {
-        let start = util.time_ms();
-
-        while (util.time_ms() - start < 30) {
-          let next = gen.next();
-
-          if (next.done) {
-            window.clearInterval(job);
-            job = undefined;
-            createButton.name = "Create LUT";
-            reporter("Done", 1.0);
-          }
-        }
-      }, 35);
-    });
+    tab = sidebar.tab("Pigment LUT");
+    let led = UIBase.createElement("pigment-lut-editor-x");
+    tab.add(led);
 
     tab = sidebar.tab("Triplet LUT");
 
@@ -722,7 +542,7 @@ export class CanvasEditor extends simple.Editor {
     bedit.setAttribute("datapath", "brushstack");
     tab.add(bedit);
 
-    for (let i=0; i<3; i++) {
+    for (let i = 0; i < 3; i++) {
       this.flushSetCSS();
       this.flushUpdate();
     }
@@ -768,7 +588,7 @@ export class CanvasEditor extends simple.Editor {
         continue;
       }
 
-      if (e.x >= rect.x && e.y >= rect.y && e.x <= rect.x+rect.width && e.y <= rect.y+rect.height) {
+      if (e.x >= rect.x && e.y >= rect.y && e.x <= rect.x + rect.width && e.y <= rect.y + rect.height) {
         return true;
       }
     }
@@ -797,9 +617,16 @@ export class CanvasEditor extends simple.Editor {
     let ret = new Vector2();
 
     let dpi = UIBase.getDPI();
-    let r = this.canvas.getBoundingClientRect();
-    ret[0] = (x - r.x)*dpi;
-    ret[1] = (y - r.y)*dpi;
+    let r = this.header.getBoundingClientRect();
+    //let r = this.canvas.getBoundingClientRect();
+    //ret[0] = (x - r.x)*dpi;
+    //ret[1] = (y - r.y)*dpi;
+
+    let gly = _appstate.gl.canvas.height - this.glPos[1];
+    gly -= this.glSize[1];
+
+    ret[0] = x*dpi - this.glPos[0];
+    ret[1] = y*dpi - gly + r.height;
 
     return ret;
   }
@@ -814,6 +641,8 @@ export class CanvasEditor extends simple.Editor {
 
   update() {
     super.update();
+
+    this.ctx.pigments.updateWasm();
 
     if (this.ctx && this.ctx.canvas) {
       this.ctx.canvas.checkWasmImage();
@@ -836,6 +665,7 @@ export class CanvasEditor extends simple.Editor {
     this.flagRedraw();
   }
 }
+
 CanvasEditor.STRUCT = nstructjs.inherit(CanvasEditor, simple.Editor) + `
 }`;
 simple.Editor.register(CanvasEditor);

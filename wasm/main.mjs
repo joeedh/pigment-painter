@@ -1847,6 +1847,51 @@ var _upscaleImage = Module["_upscaleImage"] = function() {
 };
 
 /** @type {function(...*):?} */
+var _makePigmentData = Module["_makePigmentData"] = function() {
+  return (_makePigmentData = Module["_makePigmentData"] = Module["asm"]["makePigmentData"]).apply(null, arguments);
+};
+
+/** @type {function(...*):?} */
+var _updatePigment = Module["_updatePigment"] = function() {
+  return (_updatePigment = Module["_updatePigment"] = Module["asm"]["updatePigment"]).apply(null, arguments);
+};
+
+/** @type {function(...*):?} */
+var _setColorScale = Module["_setColorScale"] = function() {
+  return (_setColorScale = Module["_setColorScale"] = Module["asm"]["setColorScale"]).apply(null, arguments);
+};
+
+/** @type {function(...*):?} */
+var _setK1K2 = Module["_setK1K2"] = function() {
+  return (_setK1K2 = Module["_setK1K2"] = Module["asm"]["setK1K2"]).apply(null, arguments);
+};
+
+/** @type {function(...*):?} */
+var _freePigmentData = Module["_freePigmentData"] = function() {
+  return (_freePigmentData = Module["_freePigmentData"] = Module["asm"]["freePigmentData"]).apply(null, arguments);
+};
+
+/** @type {function(...*):?} */
+var _getPigmentK = Module["_getPigmentK"] = function() {
+  return (_getPigmentK = Module["_getPigmentK"] = Module["asm"]["getPigmentK"]).apply(null, arguments);
+};
+
+/** @type {function(...*):?} */
+var _getPigmentS = Module["_getPigmentS"] = function() {
+  return (_getPigmentS = Module["_getPigmentS"] = Module["asm"]["getPigmentS"]).apply(null, arguments);
+};
+
+/** @type {function(...*):?} */
+var _toRGBInternLinear = Module["_toRGBInternLinear"] = function() {
+  return (_toRGBInternLinear = Module["_toRGBInternLinear"] = Module["asm"]["toRGBInternLinear"]).apply(null, arguments);
+};
+
+/** @type {function(...*):?} */
+var _toRGBInternSRGB = Module["_toRGBInternSRGB"] = function() {
+  return (_toRGBInternSRGB = Module["_toRGBInternSRGB"] = Module["asm"]["toRGBInternSRGB"]).apply(null, arguments);
+};
+
+/** @type {function(...*):?} */
 var ___errno_location = Module["___errno_location"] = function() {
   return (___errno_location = Module["___errno_location"] = Module["asm"]["__errno_location"]).apply(null, arguments);
 };

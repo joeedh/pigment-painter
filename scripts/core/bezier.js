@@ -1,5 +1,10 @@
 import {util, Vector2} from '../path.ux/pathux.js';
 
+export function icubic(k1, k2, k3, k4, s) {
+  return (-(((3*s - 4)*k3 - k4*s)*s**2 + (s**2 - 2*s + 2)*
+         (s - 2)*k1 - (3*s**2 - 8*s + 6)*k2*s)*s)/4;
+}
+
 export function cubic(k1, k2, k3, k4, s) {
   return -(k1*s**3 - 3.0*k1*s**2 + 3.0*k1*s - k1 - 3.0*k2*s**3 + 6.0*k2*s**2 -
     3.0*k2*s + 3.0*k3*s**3 - 3.0*k3*s**2 - k4*s**3);
@@ -25,7 +30,12 @@ off period;
 f1 := -(k1*s**3 - 3.0*k1*s**2 + 3.0*k1*s - k1 - 3.0*k2*s**3 + 6.0*k2*s**2 -
     3.0*k2*s + 3.0*k3*s**3 - 3.0*k3*s**2 - k4*s**3);
 
+on fort;
+
+if1 := int(f1, s);
 dv := df(f1, s);
+
+off fort;
 
 */
 export function dcubic(k1, k2, k3, k4, s) {
@@ -68,7 +78,7 @@ export function kcubic2(k1, k2, k3, k4, s) {
   let dv1 = dcubic2(k1, k2, k3, k4, s);
   let dv2 = d2cubic2(k1, k2, k3, k4, s);
 
-  return (dv1[0]*dv2[1] - dv1[10]*dv2[0]) / Math.pow(dv1.dot(dv1), 3.0/2.0);
+  return (dv1[0]*dv2[1] - dv1[10]*dv2[0])/Math.pow(dv1.dot(dv1), 3.0/2.0);
 }
 
 export function d3cubic(k1, k2, k3, k4, s) {

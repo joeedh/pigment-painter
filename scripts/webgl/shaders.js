@@ -1,4 +1,5 @@
 import {ShaderProgram} from './webgl.js';
+import {Matrix4} from '../path.ux/scripts/pathux.js';
 
 export const LutCode = {
   pre : `
@@ -9,28 +10,38 @@ uniform float lutDimen;
 uniform float lutRowSize;
 uniform float lutTexelSize;
   `,
-  code : `
+  code: `
 #ifdef TRILINEAR_LUT
-#define DITHER_FAC 0.002
+#define DITHER_FAC 0.000
 #else
 #define DITHER_FAC 0.004;
 #endif
 
 vec3 sampleLutIntern(vec3 p, float zoff) {
-  p.r = min(max(p.r, 0.0), 1.0)*(1.0 - lutTexelSize);
-  p.g = min(max(p.g, 0.0), 1.0)*(1.0 - lutTexelSize);
-  p.b = min(max(p.b, 0.0), 1.0)*(1.0 - lutTexelSize);
+  p.r = min(max(p.r, 0.0), 1.0);
+  p.g = min(max(p.g, 0.0), 1.0);
+  p.b = min(max(p.b, 0.0), 1.0);
   
-  float x = p.r * lutDimen;
-  float y = p.g * lutDimen;
-  float z = p.b * lutDimen;
-  
-#ifndef TRILINEAR_LUT
-  x = floor(x);
-  y = floor(y);
-#endif
+  float x = p.r * (lutDimen - 1.0);
+  float y = p.g * (lutDimen - 1.0);
+  float z = p.b * (lutDimen - 1.0);
 
-  z = floor(z);
+#ifdef TRILINEAR_LUT
+  float s = fract(x + 0.0);
+  float t = fract(y + 0.0);
+#endif  
+
+  x = floor(x + 0.0);
+  y = floor(y + 0.0);
+  z = floor(z + 0.0);
+
+#ifdef TRILINEAR_LUT
+  float x2 = x + 1.0;
+  float y2 = y + 1.0;
+  
+  x2 = min(x2, lutDimen - 1.0);
+  y2 = min(y2, lutDimen - 1.0);
+#endif
 
   z += zoff;
   
@@ -39,26 +50,44 @@ vec3 sampleLutIntern(vec3 p, float zoff) {
 #endif
 
   float col = mod(z, lutRowSize) * lutDimen;
-  float row = floor(z/lutRowSize + 0.00) * lutDimen;
+  float row = floor(z / lutRowSize) * lutDimen;
   
-  float u = (x + col) / (lutSize[0]-1.0);
-  float v = (y + row) / (lutSize[1]-1.0);
+  float u = (x + col) / (lutSize[0] - 1.0);
+  float v = (y + row) / (lutSize[1] - 1.0);
   
-  //float ff = -lutTexelSize*0.005;
-  //u += ff;
-  //v += ff;
+#ifdef TRILINEAR_LUT
+  float u2 = (x + col)  / (lutSize[0] - 1.0);
+  float v2 = (y2 + row) / (lutSize[1] - 1.0);
+    
+  float u3 = (x2 + col) / (lutSize[0] - 1.0);
+  float v3 = (y2 + row) / (lutSize[1] - 1.0);
   
-  vec4 r = texture(lut, vec2(u, v));
+  float u4 = (x2 + col) / (lutSize[0] - 1.0);
+  float v4 = (y + row)  / (lutSize[1] - 1.0);
   
+  vec4 r1 = texture(lut, vec2(u, v));
+  vec4 r2 = texture(lut, vec2(u2, v2));
+  vec4 r3 = texture(lut, vec2(u3, v3));
+  vec4 r4 = texture(lut, vec2(u4, v4));
+  
+  vec4 ra = r1 + (r2 - r1) * t;
+  vec4 rb = r4 + (r3 - r4) * t;
+  
+  vec4 r = (ra + (rb - ra) * s);
+#else
+  
+  vec4 r = texture(lut, vec2(u, v));  
+#endif
+
   return vec3(r.r, r.b, r.g);
 }
 
 vec3 sampleLut(vec3 p, float zoff) {
 #ifdef TRILINEAR_LUT
   vec3 a = sampleLutIntern(p, zoff);
-  vec3 b = sampleLutIntern(p, zoff + 1.00001);
+  vec3 b = sampleLutIntern(p, zoff + 1.0);
   
-  float t = fract(p.z * (lutDimen));
+  float t = fract(p.z * (lutDimen - 1.0));
   
   return mix(a, b, t);
 #else
@@ -103,6 +132,7 @@ precision highp float;
 uniform vec2 size;
 uniform float aspect;
 uniform sampler2D rgba;
+uniform mat4 drawMatrix;
 
 in vec2 co;
 in vec2 uv;
@@ -111,7 +141,8 @@ out vec2 vUv;
 out vec2 vCo;
 
 void main() {
-  gl_Position = vec4(co*2.0 - 1.0, 0.0, 1.0);
+  gl_Position = drawMatrix * vec4(co, 0.0, 1.0);
+  gl_Position.xy = gl_Position.xy*2.0 - 1.0;
   
   vUv = uv;
   vCo = co;
@@ -181,7 +212,7 @@ void main() {
   fragColor = c;
 }
 `,
-  uniforms  : {},
+  uniforms  : {drawMatrix: new Matrix4()},
   attributes: ["co", "uv"]
 }
 
@@ -193,6 +224,7 @@ precision highp float;
 uniform vec2 size;
 uniform float aspect;
 uniform sampler2D rgba;
+uniform mat4 drawMatrix;
 
 in vec2 co;
 in vec2 uv;
@@ -201,7 +233,8 @@ out vec2 vUv;
 out vec2 vCo;
 
 void main() {
-  gl_Position = vec4(co*2.0 - 1.0, 0.0, 1.0);
+  gl_Position = drawMatrix * vec4(co, 0.0, 1.0);
+  gl_Position.xy = gl_Position.xy*2.0 - 1.0;
   
   vUv = uv;
   vCo = co;
@@ -272,7 +305,7 @@ void main() {
   fragColor = c;
 }
 `,
-  uniforms  : {},
+  uniforms  : {drawMatrix: new Matrix4()},
   attributes: ["co", "uv"]
 }
 
@@ -390,6 +423,7 @@ out float vStrokeT;
 out float vLighting;
 out vec4 vColor;
 out vec4 vParams;
+out vec2 vBaseUv;
 
 vec2 rot2d(vec2 p, float th) {
   float costh = cos(th);
@@ -408,6 +442,9 @@ void main() {
   vec2 uv2 = uv - 0.5;
   
   uv2 = rot2d(uv2, -angle);
+  
+  vBaseUv = uv2 + 0.5;
+  
   uv2.x /= (1.0 - squish*0.99);
   uv2 += 0.5;
   
@@ -463,6 +500,7 @@ in float vStrokeT;
 in float vLighting;
 in vec4 vColor;
 in vec4 vParams;
+in vec2 vBaseUv;
 
 out vec4 fragColor;
 
@@ -697,6 +735,11 @@ vec4 pigmentMix(vec4 a, vec4 b, float fac) {
 
   //fac = saturate_weight(a.rgb, b.rgb, fac);
 
+#ifdef LINEAR_LUT
+  a.rgb = ungamma(a.rgb);
+  b.rgb = ungamma(b.rgb);
+#endif
+
   vec4 r;
     
   //a.rgb = clamp2553(a.rgb);
@@ -750,6 +793,10 @@ vec4 pigmentMix(vec4 a, vec4 b, float fac) {
   
   r.a = 1.0; //max(a.a, b.a);
   
+#ifdef LINEAR_LUT
+  r.rgb = gamma(r.rgb);
+#endif
+
   return r;
 }
 
@@ -901,11 +948,7 @@ void main() {
   vec4 c;
   c.a = 1.0;
 
-#ifdef CONTINUOUS
   vec2 finalUv = fract(vUv);
-#else 
-  vec2 finalUv = vUv;
-#endif
 
   vec4 a = texture(rgba, vCo);
   c = vec4(finalUv, 1.0, 1.0);
@@ -925,6 +968,12 @@ void main() {
 
   float w = 1.0 - length(cent)*2.0;
   w = max(w, 0.0);
+
+#ifndef CONTINUOUS
+  vec2 baseuv = abs(vBaseUv - 0.5);
+  //w *= float(dot(baseuv, baseuv) < 0.25);
+  w *= float(max(baseuv.x, baseuv.y) < 0.5);
+#endif
   
 #if TOOL != 3
   if (w <= 0.0) {

@@ -86,10 +86,10 @@ export const theme = {
         variant: 'normal',
         style  : 'normal',
         size   : 12,
-        color  : 'rgb(109,109,109)'
+        color  : 'rgb(91,91,91)'
       }),
       'background-color': 'rgb(19,19,19)',
-      'border-color'    : '#f58f8f',
+      'border-color'    : '#3b3b3b',
       'border-radius'   : 4,
       'border-style'    : 'solid',
       'border-width'    : 2,
@@ -110,17 +110,17 @@ export const theme = {
         size   : 12,
         color  : 'rgba(255,255,255, 1)'
       }),
-      'background-color': 'rgba(138,222,255, 1)',
-      'border-color'    : 'rgba(255,255,255, 1)',
+      'background-color': 'rgb(93,156,178)',
+      'border-color'    : 'rgb(190,190,190)',
       'border-radius'   : 4,
       'border-style'    : 'solid',
       'border-width'    : 2,
-      margin            : 4,
-      'margin-left'     : 4,
-      'margin-right'    : 4,
-      padding           : 1,
-      'padding-left'    : 2,
-      'padding-right'   : 2,
+      margin             : 4,
+      'margin-left'      : 4,
+      'margin-right'     : 4,
+      padding            : 0,
+      'padding-left'     : 4.808670709628941,
+      'padding-right'    : 3.0536720046271224,
     },
     'highlight-pressed': {
       DefaultText       : new CSSFont({
@@ -129,17 +129,19 @@ export const theme = {
         variant: 'normal',
         style  : 'normal',
         size   : 12,
-        color  : 'rgba(35,35,35, 1)'
+        color  : 'rgb(138,138,138)'
       }),
-      'background-color': 'rgba(113,113,113, 1)',
-      'border-color'    : '#DADCE0',
+      'background-color': 'rgb(66,66,66)',
+      'border-color'    : '#2c2c2c',
       'border-radius'   : 4,
       'border-style'    : 'solid',
       'border-width'    : 2,
-      margin            : 4,
-      'margin-left'     : 4,
-      'margin-right'    : 4,
-      padding           : 1,
+      margin             : 4,
+      'margin-left'      : 4,
+      'margin-right'     : 4,
+      padding            : 0,
+      'padding-left'     : 4.808670709628941,
+      'padding-right'    : 3.0536720046271224,
     },
     margin             : 4,
     'margin-left'      : 4,
@@ -154,14 +156,22 @@ export const theme = {
         variant: 'normal',
         style  : 'normal',
         size   : 12,
-        color  : 'rgba(35,35,35, 1)'
+        color  : 'rgb(138,138,138)'
       }),
-      'background-color': 'rgba(113,113,113, 1)',
-      'border-color'    : '#DADCE0',
+      'background-color': 'rgb(66,66,66)',
+      'border-color'    : '#2c2c2c',
+      'border-radius'   : 4,
       'border-style'    : 'solid',
-      'border-width'    : 1,
+      'border-width'    : 2,
+      margin             : 4,
+      'margin-left'      : 4,
+      'margin-right'     : 4,
+      padding            : 0,
+      'padding-left'     : 4.808670709628941,
+      'padding-right'    : 3.0536720046271224,
     },
     width              : 25,
+    pressedTimeout     : 150,
   },
 
   checkbox: {
@@ -182,7 +192,7 @@ export const theme = {
 
   colorpickerbutton: {
     height: 32,
-    width : 95,
+    width : 65,
   },
 
   curvewidget: {
@@ -338,7 +348,7 @@ export const theme = {
     BoxHighlight      : 'rgba(74,137,179, 1)',
     'background-color': 'rgba(98,98,98, 1)',
     'border-color'    : 'rgba(196,196,196, 1)',
-    'border-radius'   : 15,
+    'border-radius'   : 9,
     height            : 18,
     width             : 90,
   },
@@ -361,6 +371,7 @@ export const theme = {
     height            : 25,
     labelOnTop        : true,
     width             : 120,
+    'border-radius'   : 9,
   },
 
   panel: {

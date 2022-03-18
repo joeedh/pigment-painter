@@ -3,6 +3,7 @@
 #include <functional>
 #include <type_traits>
 
+#include "cie65.h"
 #include "curve.h"
 
 using float2 = curve::float2;
@@ -493,54 +494,9 @@ getImageData(int slot, int width, int height, int tilesize, int channels, int is
 
   return image->data;
 }
-
-#define SRGB_TABLE_SIZE 8192
-
-float gammaToLinear[8192];
-float linearToGamma[8192];
-
-float srgb_gamma_to_linear(float f) {
-  f = std::min(std::max(f, 0.0f), 0.99999f);
-
-#if 1
-  int i = (int)(f * SRGB_TABLE_SIZE);
-
-  return gammaToLinear[i];
-#else
-  if (f < 0.04045) {
-    return (f < 0.0) ? 0.0 : f * (1.0 / 12.92);
-  } else {
-    return powf((f + 0.055) / 1.055, 2.4f);
-  }
-#endif
-}
-
-float srgb_linear_to_gamma(float f) {
-  f = std::min(std::max(f, 0.0f), 0.99999f);
-#if 1
-  int i = (int)(f * SRGB_TABLE_SIZE);
-
-  return linearToGamma[i];
-#else
-  if (f < 0.0031308) {
-    return (f < 0.0) ? 0.0 : f * 12.92;
-  } else {
-    return 1.055 * powf(f, 1.0 / 2.4) - 0.055;
-  }
-#endif
-}
-
-void rgb_to_linear(float c[4]) {
-  c[0] = srgb_gamma_to_linear(c[0]);
-  c[1] = srgb_gamma_to_linear(c[1]);
-  c[2] = srgb_gamma_to_linear(c[2]);
-}
-
-void linear_to_rgb(float c[4]) {
-  c[0] = srgb_linear_to_gamma(c[0]);
-  c[1] = srgb_linear_to_gamma(c[1]);
-  c[2] = srgb_linear_to_gamma(c[2]);
-}
+    
+float gammaToLinear[SRGB_TABLE_SIZE];
+float linearToGamma[SRGB_TABLE_SIZE];
 
 extern "C" void test() {
   if (!images[0].data) {
@@ -1398,8 +1354,14 @@ void initTables() {
   }
 }
 
+namespace color::cie65 {
+float table[1024][3];
+float used[1024];
+} // namespace color::cie65
+
 extern "C" int main(int argc, const char **argv) {
   initTables();
+  color::cie65::initCie65();
 }
 
 extern "C" void upscaleImage(int srcslot, int destslot, int dimen, int newdimen) {

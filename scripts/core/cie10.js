@@ -199,3 +199,68 @@ window.xhat = xhat;
 window.yhat = yhat;
 window.zhat = zhat;
 window.tables1 = tables;
+
+window.getnCie10Code = function() {
+  let s = `
+
+#include <algorithm>
+namespace color::cie10 {
+#define CIE10_STEPS ${size}
+  `;
+
+  let tabi = 0;
+  for (let table of tables) {
+    tabi++;
+
+    s += `const float table${tabi}[${table.length}] {\n`
+    for (let i=0; i<table.length; i++) {
+      if (i > 0) {
+        s += ",";
+      }
+
+      if ((i + 1) % 40 === 0) {
+        s += "\n";
+      }
+
+      s += table[i].toFixed(4);
+    }
+
+    s += "};\n";
+  }
+
+  s += `
+
+const float *tables[3] = {table1, table2, table3};
+  
+float sample(float f, int idx) {
+  f = std::min(std::max(f, 380.0f), 749.0f);
+  f = (f - 380.0f) * 0.0027027.0f; // / 370
+  f *= CIE10_STEPS;
+
+  int i = (int)f;
+  f -= i;
+
+  if (i == CIE10_STEPS-1) {
+    return tables[idx][i];
+  }
+
+  float a = tables[idx][i];
+  float b = tables[idx][i+1];
+
+  return a + (b - a)*f;
+}
+
+float xhat(float f) {
+  return sample(f, 0);
+}
+float yhat(float f) {
+  return sample(f, 1);
+}
+float zhat(float f) {
+  return sample(f, 2);
+}
+}
+
+  `;
+  console.log(s);
+}

@@ -1,7 +1,8 @@
 import {
   Curve1D, EnumProperty, FloatProperty, nstructjs,
   simple, util, Vec3Property, Vec4Property, Vector3, platform,
-  Vector4, ToolProperty, IntProperty, FlagProperty, Vec2Property, StringProperty, ListProperty, CurveConstructors
+  Vector4, ToolProperty, IntProperty, FlagProperty, Vec2Property, StringProperty, ListProperty, CurveConstructors,
+  ToolOp
 } from '../path.ux/scripts/pathux.js';
 import {Pigment} from './colormodel.js';
 import {Icons} from './icon_enum.js';
@@ -124,6 +125,7 @@ export class BrushAlpha {
   static loadAlpha(name, url, tilesize, alphaLightingMul) {
     let img = document.createElement("img");
     img.src = platform.platform.resolveURL(url);
+    img.decoding = "async";
 
     let alpha = new BrushAlpha(name, undefined, tilesize, alphaLightingMul);
 
@@ -521,7 +523,7 @@ export class BrushChannel {
         prop.stepIsRelative = ch.prop.stepIsRelative;
         prop.slideSpeed = ch.prop.slideSpeed;
         prop.uiRange = ch.prop.uiRange;
-        
+
         return prop;
       })
       .uiNameGetter(function () {
@@ -704,24 +706,27 @@ export class BrushChannelSet extends Array {
   static defaultTemplate() {
     return {
       strength        : {value: 0.5, range: [0.0, 1.0], penPressure: true},
-      radius          : {value: 35.0, range: [0.25, 1600.0], unit: "pixel", decimalPlaces:1, slideSpeed : 2, step : 2, expRate : 1.65},
+      radius          : {
+        value: 35.0, range: [0.25, 1600.0], unit: "pixel", decimalPlaces: 1, slideSpeed: 2, step: 2, expRate: 1.65
+      },
       hue             : {value: 0.0, range: [-1.0, 1.0]},
       scatter         : {value: 2.75, range: [0.0, 100.0]},
       smear           : {value: 0.33, range: [0.0, 2.5]},
       smearLen        : {value: 3.5, range: [0.0, 5.0]},
       smearRate       : {value: 1.2, uiName: "Rate"},
-      spacing         : {value: 0.25, range: [0.001, 2.5], step:0.05, slideSpeed:3.0, decimalPlaces : 2, expRate : 2.0},
+      spacing         : {value: 0.25, range: [0.001, 2.5], step: 0.05, slideSpeed: 3.0, decimalPlaces: 2, expRate: 2.0},
       alphaLighting   : {value: 0.25, range: [0.0, 2.0], uiName: "light"},
       color           : new Vector4([0.6, 0.0, 0.2, 1.0]),
+      color2          : new Vector4([1.0, 1.0, 1.0, 1.0]),
       angle           : {value: 0.0, range: [0.0, 360.0], unit: "degree", decimalPlaces: 1, step: 1},
       squish          : {value: 0.0, range: [0.0, 1.0]},
-      soft            : {value: 0.25, range: [0.0, 1.0], slideSpeed : 3.0, step: 0.05, decimalPlaces: 2},
-      random          : {value: 0.0, range: [0.0, 10.0], step: 0.25, expRate : 1.5, slideSpeed: 1.0, decimalPlaces: 2},
+      soft            : {value: 0.25, range: [0.0, 1.0], slideSpeed: 3.0, step: 0.05, decimalPlaces: 2},
+      random          : {value: 0.0, range: [0.0, 10.0], step: 0.25, expRate: 1.5, slideSpeed: 1.0, decimalPlaces: 2},
       alphaLightingMul: {value: 1.0, range: [0.01, 100.0], step: 0.1, decimalPlaces: 3}, //set by brush alphas
-      param1          : {value: 0.0, range: [-5.0, 5.0], step : 0.1, decimalPlaces: 3},
-      param2          : {value: 0.0, range: [-5.0, 5.0], step : 0.1, decimalPlaces: 3},
-      param3          : {value: 0.0, range: [-5.0, 5.0], step : 0.1, decimalPlaces: 3},
-      param4          : {value: 0.0, range: [-5.0, 5.0], step : 0.1, decimalPlaces: 3},
+      param1          : {value: 0.0, range: [-5.0, 5.0], step: 0.1, decimalPlaces: 3},
+      param2          : {value: 0.0, range: [-5.0, 5.0], step: 0.1, decimalPlaces: 3},
+      param3          : {value: 0.0, range: [-5.0, 5.0], step: 0.1, decimalPlaces: 3},
+      param4          : {value: 0.0, range: [-5.0, 5.0], step: 0.1, decimalPlaces: 3},
     }
   }
 
@@ -970,6 +975,22 @@ export class Brush extends Preset {
     return this.strokeMode === StrokeModes.SMOOTH_DAB || this.strokeMode === StrokeModes.SMOOTH;
   }
 
+  get color() {
+    return this.channels.get("color").value;
+  }
+
+  set color(v) {
+    this.channels.get("color").setValue(v);
+  }
+
+  get color2() {
+    return this.channels.get("color2").value;
+  }
+
+  set color2(v) {
+    this.channels.get("color2").setValue(v);
+  }
+
   static presetDefine() {
     return {
       typeName: "brush",
@@ -985,7 +1006,7 @@ export class Brush extends Preset {
     let def = st.enum("mask", "mask", BrushAlpha.prop, "Brush Alpha");
     def.data = BrushAlpha.prop;
 
-    let onchange = function() {
+    let onchange = function () {
       this.dataref.save();
     };
 
@@ -993,8 +1014,13 @@ export class Brush extends Preset {
 
     st.float("hue", "hue", "Hue").noUnits().range(-1.0, 1.0);
 
-    st.color4("color", "color", "Color").on('change', function() {
+    st.color4("color", "color", "Color").on('change', function () {
       console.log("Color change!");
+      this.dataref.save();
+    });
+
+    st.color4("color2", "color2", "Second").on('change', function () {
+      console.log("Secondary color change!");
       this.dataref.save();
     });
 
@@ -1193,6 +1219,7 @@ export class Brush extends Preset {
     b.channels = this.channels.copy();
 
     b.color.load(this.color);
+    b.color2.load(this.color2);
     b.smear = this.smear;
     b.smearLen = this.smearLen;
     b.smearRate = this.smearRate;
@@ -1238,19 +1265,10 @@ export class Brush extends Preset {
     digest.add(this.mixMode);
     digest.add(this.strokeMode);
     digest.add(this.color);
+    digest.add(this.color2);
 
     return digest.get();
   }
-
-
-  get color() {
-    return this.channels.get("color").value;
-  }
-
-  set color(v) {
-    this.channels.get("color").setValue(v);
-  }
-
 
   loadSTRUCT(reader) {
     super.loadSTRUCT(reader);
@@ -1261,16 +1279,9 @@ export class Brush extends Preset {
 }
 
 Brush.STRUCT = nstructjs.inherit(Brush, Preset, "Brush") + `
-  radius     : float;
-  strength   : float;
   tool       : int;
-  spacing    : float;
   flag       : int;
   mixMode    : int;
-  scatter    : float;
-  smear      : float;
-  smearLen   : float;
-  smearRate  : float;
   channels   : BrushChannelSet;
   mask       : int;
   strokeMode : int;
@@ -1295,3 +1306,37 @@ function makeBrushProp(k) {
 for (let k in BrushChannelSet.defaultTemplate()) {
   makeBrushProp(k);
 }
+
+export class SwapColorsOp extends ToolOp {
+  static tooldef() {
+    return {
+      uiname  : "Swap",
+      toolpath: "brush.swap_colors",
+      icon    : Icons.REFRESH,
+      inputs  : {},
+      outputs : {},
+    }
+  }
+
+  undoPre(ctx) {
+
+  }
+
+  calcUndoMem(ctx) {
+    return 0;
+  }
+
+  undo(ctx) {
+    this.exec(ctx);
+  }
+
+  exec(ctx) {
+    let brush = ctx.brush;
+    let tmp = new Vector4(brush.color);
+
+    brush.color.load(brush.color2);
+    brush.color2.load(tmp);
+  }
+}
+
+ToolOp.register(SwapColorsOp);
