@@ -2771,6 +2771,12 @@ export class PigmentSet extends Array {
       }
     }
 
+    if (this.optimizeFilledIn) {
+      for (let step of this.optimizeLutFillIn(lut, usedcpy, reporter)) {
+        yield;
+      }
+    }
+
     if (this.blurFilledInPixels) {
       console.log("Blurring");
       reporter("Blur", 0);
@@ -2802,12 +2808,6 @@ export class PigmentSet extends Array {
 
       lut.dv = undefined;
       reporter("Blur", 1.0);
-    }
-
-    if (this.optimizeFilledIn) {
-      for (let step of this.optimizeLutFillIn(lut, usedcpy, reporter)) {
-        yield;
-      }
     }
 
     if (1) {
@@ -2878,7 +2878,7 @@ export class PigmentSet extends Array {
     let tot = 0.0;
 
     for (let i = 0; i < 4; i++) {
-      mix[i] += -r1*gs[i]*0.7;
+      mix[i] += -r1*gs[i]*0.35;
       mix[i] = Math.max(mix[i], 0.0);
       tot += mix[i];
     }

@@ -1048,8 +1048,6 @@ export class ColorBlendPreview extends Container {
 
     let hash = digest.get();
 
-    console.log(hash);
-
     if (hash !== this._last_update_hash) {
       this._last_update_hash = hash;
       this.redraw();

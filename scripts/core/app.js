@@ -24,6 +24,7 @@ import {ColorTripletSet, colorTripletSet} from './pairlut.js';
 import {BrushCommandStack} from '../webgl/brush_webgl.js';
 import {presetManager, startPresets} from './presets.js';
 import {SolverSettings} from './optimize.js';
+import {WebGLGraph} from '../layers/layers.js';
 
 export class AppSettings extends simple.DataModel {
   constructor() {
@@ -55,6 +56,10 @@ export class Context {
 
   get canvasEditor() {
     return simple.Editor.findEditor(CanvasEditor);
+  }
+
+  get graph() {
+    return this.state.imageGraph;
   }
 
   get menuBar() {
@@ -138,7 +143,8 @@ export class AppState extends simple.AppState {
     this.defaultEditorClass = CanvasEditor;
 
     this.brushstack = new BrushCommandStack();
-
+    this.imageGraph = new WebGLGraph();
+    
     this.toolstack.enforceMemLimit = true;
     //this.toolstack.memLimit = 8*1024*1024;
 
