@@ -400,6 +400,12 @@ export class AppState extends simple.AppState {
       }
     });
 
+    let onError = () => {
+      this.makeScreen();
+      this.createNewFile();
+      this.canvas.init(this.gl);
+    }
+
     if (LOCAL_STORAGE_KEY in localStorage) {
       let data = localStorage[LOCAL_STORAGE_KEY];
 
@@ -407,13 +413,19 @@ export class AppState extends simple.AppState {
         this.loadFile(data, {useJSON: true}).catch(error => {
           console.error(error.stack);
           console.error("Failed to load startup file", error.message);
+          onError();
         });
       } catch (error) {
         console.error(error.stack);
         console.error("Failed to load startup file", error.message);
+        onError();
       }
 
       this.loadSettings();
+    } else {
+      if (WEBGL_PAINTER) {
+        this.canvas.init(this.gl);
+      }
     }
   }
 }

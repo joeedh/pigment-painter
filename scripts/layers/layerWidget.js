@@ -1,9 +1,10 @@
 import {
   Vector2, Vector3, Vector4,
   Matrix4, Quat, util, nstructjs,
-  simple, UIBase, Container, RowFrame, ToolOp, FloatConstrinats, FloatProperty, Vec4Property, IntProperty
+  simple, UIBase, Container, RowFrame, ToolOp, FloatConstrinats, FloatProperty, Vec4Property, IntProperty, saveUIData,
+  loadUIData
 } from '../path.ux/pathux.js';
-import {ImageProperty, LayerGraph, NodeBase, SlotTypes} from './layers_base.js';
+import {ImageProperty, LayerGraph, LayerNode, NodeBase, OutputNode, SlotTypes} from './layers_base.js';
 import {WebGLGraph} from './layers.js';
 
 export function saveLayerStack(graph, keepImageSlots = new Map()) {
@@ -55,7 +56,7 @@ export function saveLayerStack(graph, keepImageSlots = new Map()) {
 export function loadLayerStack(data, graph) {
   let idmap = data.idmap;
 
-  //disconnect graph
+  //disconnectconnect graph
   graph.forAllNodes(node => {
     for (let slot of new Set(node.allSlots)) {
       let slot2 = idmap.get(slot.id);
@@ -125,6 +126,8 @@ export function loadLayerStack(data, graph) {
     graph.nodes.push(node);
 
     graph.idMap.set(node.id, node);
+    graph.nameMap.set(node.name, node);
+
     if (node instanceof LayerGraph) {
       node.idMap = graph.idMap;
       node.idgen = graph.idgen;
@@ -207,6 +210,7 @@ export class AddLayerOp extends LayerOpBase {
 
   static tooldef() {
     return {
+      uiname : "New Layer",
       toolpath : "graph.add_layer",
       inputs : {
         customWidth : new FloatProperty(-1),
@@ -235,4 +239,76 @@ export class AddLayerOp extends LayerOpBase {
 ToolOp.register(AddLayerOp);
 
 
+export class LayerWidget extends Container {
+  constructor() {
+    super();
 
+    this.needsRebuild = true;
+    this._last_update_gen = undefined;
+  }
+
+
+  init() {
+    this.rebuild();
+  }
+
+  rebuild() {
+    this.needsRebuild = false;
+    let uidata = saveUIData(this, "layer-widget");
+
+    this.clear();
+
+    let graph = this.ctx.graph;
+
+    this.tool("graph.add_layer");
+
+    graph.sort(true);
+
+    let listbox = this.listbox();
+    listbox.overrideDefault("width", "345");
+
+    for (let node of graph.sortlist) {
+      if (!(node instanceof LayerNode)) {
+        continue;
+      }
+
+      let item = listbox.addItem(node.name, node.id);
+      let path = `graph.nodes[${node.id}]`;
+
+      item.prop(path + ".visible");
+    }
+
+    console.log(graph);
+
+    graph.flagResort();
+
+    loadUIData(this, uidata);
+    this.flushSetCSS();
+
+    for (let i=0; i<3; i++) {
+      this.flushUpdate();
+    }
+  }
+
+  update() {
+    if (!this.ctx || !this.ctx.graph) {
+      return;
+    }
+
+    let graph = this.ctx.graph;
+    if (graph.updateGen !== this._last_update_gen) {
+      this._last_update_gen = graph.updateGen;
+      this.needsRebuild = true;
+    }
+
+    if (this.needsRebuild) {
+      this.rebuild();
+    }
+  }
+  static define() {
+    return {
+      tagname : 'layer-widget-x'
+    }
+  }
+}
+UIBase.register(LayerWidget);

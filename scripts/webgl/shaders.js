@@ -983,7 +983,8 @@ void main() {
 #endif
   
   w = w < vSoft ? w/vSoft : 1.0;
-  w *= w*w*w;
+  w *= w;
+  //w *= w*w*w;
   
   float fac = vStrength*w;
 

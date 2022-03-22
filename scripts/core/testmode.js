@@ -8,9 +8,11 @@ import {Brush} from './brush.js';
 import {PlatformAPI} from '../path.ux/scripts/platforms/platform_base.js';
 import {Icons} from './icon_enum.js';
 import {theme} from './theme.js';
+import '../layers/layerWidget.js';
 
 import './pigment_editor.js';
 import {AppSettings} from './app.js';
+import {WebGLGraph} from '../layers/layers.js';
 
 export class TestEditor extends simple.Editor {
   constructor() {
@@ -42,6 +44,10 @@ export class TestEditor extends simple.Editor {
 
     let col2 = row.col();
     col2.style["align-self"] = "flex-start";
+
+    let lpanel = col1.panel("Layers");
+    let layers = UIBase.createElement("layer-widget-x");
+    lpanel.add(layers);
 
     let name = "CMYK";
     this.style["overflow"] = "scroll";
@@ -122,10 +128,15 @@ export class TestContext {
     return this.state.test.brush;
   }
 
+  get graph() {
+    return this.state.graph;
+  }
+
   static defineAPI(api, st) {
     st.struct("pigments", "pigments", "Pigments", api.mapStruct(PigmentSet));
     st.struct("brush", "brush", "Brush", api.mapStruct(Brush));
     st.struct("settings", "settings", "Settings", api.mapStruct(AppSettings));
+    st.struct("graph", "graph", "Layer Graph", api.mapStruct(WebGLGraph));
   }
 }
 
@@ -138,6 +149,8 @@ export class TestApp extends simple.AppState {
     this.test = new TestState();
     this.saveFilesInJSON = true;
     this.defaultEditorClass = TestEditor;
+
+    this.graph = new WebGLGraph();
 
     window.setInterval(() => {
       let save = JSON.stringify(this.saveFileSync());
@@ -192,6 +205,8 @@ export class TestApp extends simple.AppState {
 
 export function start() {
   console.log("Start!");
+
+  window.redraw_all = () => {};
 
   window._appstate = new TestApp();
   _appstate.start();

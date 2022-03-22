@@ -1,6 +1,7 @@
 import {
   util, nstructjs, math, Vector2,
-  Vector3, Vector4, Matrix4, Quat, UIBase
+  Vector3, Vector4, Matrix4, Quat, UIBase,
+  simple
 } from '../path.ux/pathux.js';
 
 import {
@@ -114,6 +115,10 @@ export class WebGLGraph extends LayerGraph {
     rec(this);
   }
 
+  static defineAPI(api, st) {
+    super.defineAPI(api, st);
+  }
+
   execNode() {
 
   }
@@ -130,3 +135,6 @@ export class WebGLGraph extends LayerGraph {
     }
   }
 }
+WebGLGraph.STRUCT = nstructjs.inherit(WebGLGraph, LayerGraph) + `
+}`;
+simple.DataModel.register(WebGLGraph);

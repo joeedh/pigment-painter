@@ -667,7 +667,11 @@ export class Pigment {
   }
 
   static toRGB(pigments, ws, steps = 64) {
-    if (pigments[0].wasm) {//pigments.checkWasm()) {
+    if (ws === undefined && pigments.length === 1) {
+      ws = [1.0];
+    }
+
+    if (pigments.length === 4 && pigments[0].wasm) {//pigments.checkWasm()) {
       return pigments[0].wasm.toRGB(pigments, ws);
     }
 

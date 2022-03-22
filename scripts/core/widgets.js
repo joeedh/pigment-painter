@@ -1,7 +1,8 @@
 import {
   nstructjs, util, Vector2, Vector3,
   Vector4, Matrix4, Quat, math, UIBase,
-  Container, saveUIData, loadUIData, ToolOp, IntProperty, Vec4Property, EnumProperty, iconmanager, StringProperty,
+  Container, saveUIData, loadUIData, ToolOp, IntProperty,
+  Vec4Property, EnumProperty, iconmanager, StringProperty,
   popModalLight, pushModalLight, keymap, parsepx
 } from '../path.ux/scripts/pathux.js';
 import {Icons} from './icon_enum.js';
@@ -11,9 +12,72 @@ import {presetManager} from './presets.js';
 import {Brush, BrushMixModes, BrushTools} from './brush.js';
 import {Presets} from '../presets/brush_presets.js';
 import {Optimizer} from './optimize.js';
-import {Pigment, START_REFL_K1, START_REFL_K2} from './colormodel.js';
+import {Pigment, pigment_data, START_REFL_K1, START_REFL_K2} from './colormodel.js';
+import * as pigment_data_orig from './pigment_data_original.js';
 
 export const BrushIconCache = new Map();
+
+export function copyPigmentData(p) {
+  let p2 = {
+    pigmentKS : []
+  };
+
+  for (let pdata of p.pigmentKS) {
+    pdata = {
+      name : pdata.name,
+      K : util.list(pdata.K),
+      S : util.list(pdata.S)
+    }
+
+    p2.pigmentKS.push(pdata);
+  }
+
+  return p2;
+}
+
+export function loadPigmentData(ps, dst, src) {
+  let p1 = dst.pigmentKS;
+  let p2 = src.pigmentKS;
+
+  for (let i=0; i<p1.length; i++) {
+    let a = p1[i];
+    let b = p2[i];
+
+    for (let i=0; i<a.K.length; i++) {
+      a.K[i] = b.K[i];
+    }
+
+    for (let i=0; i<a.S.length; i++) {
+      a.S[i] = b.S[i];
+    }
+  }
+
+  for (let p of ps) {
+    p.updateGen++;
+  }
+}
+
+export class ResetPigmentData extends ToolOp {
+  static tooldef() {
+    return {
+      uiname : "Reset Data",
+      toolpath : "pigment.reset_data",
+    }
+  }
+
+  undoPre(ctx) {
+    this._undo = copyPigmentData(pigment_data);
+  }
+
+  undo(ctx) {
+    loadPigmentData(ctx.pigments, pigment_data, this._undo);
+  }
+
+  exec(ctx) {
+    loadPigmentData(ctx.pigments, pigment_data, pigment_data_orig);
+  }
+}
+ToolOp.register(ResetPigmentData);
 
 export class TripletOp extends ToolOp {
   constructor() {
@@ -644,6 +708,8 @@ export class LUTEditorWidget extends Container {
     this.solver = undefined;
 
     let panel = this.panel("Solver");
+
+    panel.tool("pigment.reset_data");
 
     let button2 = panel.button("Optimize", () => {
       if (this.solver) {

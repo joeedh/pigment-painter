@@ -19,7 +19,7 @@ export class ImageProperty extends ToolProperty {
     this.needsBytes = true;
     this.bytes = undefined;
     this.data = undefined;
-    this.fixedColor = new Vector4();
+    this.fillColor = new Vector4();
   }
 
   copyTo(b) {
@@ -27,7 +27,7 @@ export class ImageProperty extends ToolProperty {
 
     b.bytes = this.bytes;
     b.data = this.data;
-    b.fixedColor.load(this.fixedColor);
+    b.fillColor.load(this.fillColor);
   }
 
   getValue() {
@@ -59,7 +59,7 @@ export class ImageProperty extends ToolProperty {
 ImageProperty.STRUCT = `
 ImageProperty {
   bytes      : array(byte) | this._saveData();
-  fixedColor : vec4;
+  fillColor  : vec4;
   width      : int;
   height     : int;
 }
@@ -184,7 +184,7 @@ export class LayerSlot {
     }
 
     this.edges.push(b);
-    b.edges.push(b);
+    b.edges.push(this);
 
     return this;
   }
@@ -288,7 +288,7 @@ export class NodeBase {
 
     this.graph = undefined;
 
-    this.name = "";
+    this.name = ToolProperty.makeUIName(this.constructor.nodeDef().typeName);
     this.id = -1;
     this.flag = 0;
 
@@ -356,7 +356,7 @@ export class NodeBase {
       for (let k in this2.outputs) {
         yield this2.outputs[k];
       }
-    });
+    })();
   }
 
   static noInherit(slots = {}) {
@@ -377,7 +377,12 @@ export class NodeBase {
   }
 
   static defineAPI(api, st) {
-
+    st.string("name", "name", "Name").customGetSet(function() {
+      return this.dataref.name;
+    }, function(s) {
+      this.dataref.graph.renameNode(this.dataref, s);
+    });
+    st.int("id", "id", "ID").readOnly();
   }
 
   static getClass(typeName) {
@@ -471,6 +476,9 @@ nstructjs.register(NodeBase);
 export class LayerNode extends NodeBase {
   constructor() {
     super();
+
+    this.name = "Layer";
+    this.visible = true;
   }
 
   static nodeDef() {
@@ -488,9 +496,19 @@ export class LayerNode extends NodeBase {
       }
     }
   }
+
+  static defineAPI(api, st) {
+    super.defineAPI(api, st);
+
+    st.bool("visible", "visible", "Visible").on('change', function() {
+      this.dataref.graph.updateGen++;
+      window.redraw_all();
+    });
+  }
 }
 
 LayerNode.STRUCT = nstructjs.inherit(LayerNode, NodeBase) + `
+  visible : bool;
 }
 `;
 NodeBase.register(LayerNode);
@@ -504,10 +522,10 @@ export class OutputNode extends NodeBase {
     return {
       typeName: "output",
       uiName  : "Output",
-      input   : {
+      inputs   : {
         surface: LayerSlot.image()
       },
-      output  : {
+      outputs  : {
         surface: LayerSlot.image()
       }
     }
@@ -527,6 +545,7 @@ export class LayerGraph extends NodeBase {
     this.idgen = new util.IDGen();
     this.nodes = [];
     this.idMap = new Map();
+    this.nameMap = new Map();
 
     this.width = 512;
     this.height = 512;
@@ -544,11 +563,21 @@ export class LayerGraph extends NodeBase {
     }
   }
 
+  renameNode(node, s) {
+    this.nameMap.delete(node.name);
+
+    node.name = this.uniqueName(s);
+    this.nameMap.set(node.name, node);
+
+    return node.name;
+  }
+
   createSubGraph() {
     let graph = new this.constructor();
 
     graph.idgen = this.idgen;
     graph.idMap = this.idMap;
+    graph.nameMap = this.nameMap;
     graph.flag |= GraphFlags.SUBGRAPH;
 
     this.add(graph);
@@ -676,7 +705,22 @@ export class LayerGraph extends NodeBase {
       sortlist.push(node);
     }
 
+    if (!output) {
+      return;
+    }
+    
     rec(output);
+  }
+
+  uniqueName(name) {
+    let i = 2;
+
+    let name2 = name;
+    while (this.nameMap.has(name2)) {
+      name2 = name + " " + (i++);
+    }
+
+    return name2;
   }
 
   add(node) {
@@ -685,9 +729,14 @@ export class LayerGraph extends NodeBase {
       return;
     }
 
+    node.name = this.uniqueName(node.name);
+    this.nameMap.set(node.name, node);
+
     node.id = this.idgen.next();
     this.idMap.set(node.id, node);
     node.graph = this;
+
+    this.nodes.push(node);
 
     for (let slot of node.allSlots) {
       slot.id = this.idgen.next();
@@ -706,8 +755,10 @@ export class LayerGraph extends NodeBase {
       throw new Error("node not in graph");
     }
 
+    this.nameMap.delete(node.name);
     this.nodes.remove(node);
     this.idMap.delete(node.id);
+
     node.id = -1;
     node.graph = undefined;
 
@@ -796,18 +847,21 @@ export class LayerGraph extends NodeBase {
       surface.edges[0].disconnect(surface);
 
       slot.connect(layer.inputs.surface);
-      layer.outputs.surface.connect(output.inputs.surface);
     }
+
+    layer.outputs.surface.connect(output.inputs.surface);
   }
 
   loadSTRUCT(reader) {
+    reader(this);
     this.flagResort()
 
     if (this.flag & GraphFlags.SUBGRAPH) {
       return;
     }
 
-    let idMap = new Map();
+    let idMap = this.idMap = new Map();
+    let nameMap = this.nameMap = new Map();
 
     let rec = (graph) => {
       graph.idgen = this.idgen;
@@ -817,6 +871,7 @@ export class LayerGraph extends NodeBase {
         node.graph = graph;
 
         idMap.set(node.id, node);
+        nameMap.set(node.name, node);
 
         for (let slot of node.allSlots) {
           idMap.set(slot.id, slot);
@@ -829,14 +884,52 @@ export class LayerGraph extends NodeBase {
       }
     }
 
+    rec(this);
+
     /* relink edges */
     for (let [id, node] of idMap) {
+      if (!(node instanceof NodeBase)) {
+        continue;
+      }
+
       for (let slot of node.allSlots) {
         for (let i = 0; i < slot.edges.length; i++) {
           slot.edges[i] = idMap.get(slot.edges[i]);
         }
       }
     }
+  }
+
+  testSave() {
+    let json = nstructjs.writeJSON(this);
+
+    console.log(json);
+
+    let obj = nstructjs.readJSON(json, this.constructor);
+    _appstate.graph = obj;
+
+    obj.updateGen = ~~(1024*Math.random());
+    window.redraw_all();
+  }
+
+  static defineAPI(api, st) {
+    st.list("", "nodes", {
+      get(api, list, key) {
+        return list.idMap.get(key);
+      },
+      getKey(api, list, obj) {
+        return obj.id;
+      },
+      getStruct(api, list, key) {
+        return api.mapStruct(list.idMap.get(key).constructor);
+      },
+      getIter(api, list) {
+        return list.nodes[Symbol.iterator]();
+      },
+      getLength(api, list) {
+        return list.nodes.length;
+      }
+    });
   }
 }
 

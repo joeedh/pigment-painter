@@ -300,8 +300,10 @@ export const theme = {
   },
 
   listbox: {
-    ListActive   : 'rgba(200, 205, 215, 1.0)',
-    ListHighlight: 'rgba(155, 220, 255, 0.5)',
+    ListActive   : 'rgb(110,136,183)',
+    ListActiveHighlight   : 'rgb(73,205,231)',
+    ListHighlight: 'rgba(88,187,239,0.5)',
+    "background-color" : "rgb(86,86,86)",
     height       : 200,
     width        : 110,
   },
