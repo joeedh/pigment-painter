@@ -763,7 +763,7 @@ export class BrushChannelSet extends Array {
       },
       spacing         : {value: 0.25, range: [0.001, 2.5], step: 0.05, slideSpeed: 3.0, decimalPlaces: 2, expRate: 2.0},
       alphaLighting   : {value: 0.25, range: [0.0, 2.0], uiName: "light"},
-      color           : {value: new Vector4([0.6, 0.0, 0.2, 1.0]), inherit: true},
+      color           : {value: new Vector4([0.11, 0.28, 0.6, 1.0]), inherit: true},
       angle           : {value: 0.0, range: [0.0, 360.0], unit: "degree", decimalPlaces: 1, step: 1},
       squish          : {value: 0.0, range: [0.0, 0.95]},
       soft            : {value: 0.25, range: [0.0, 1.0], slideSpeed: 3.0, step: 0.05, decimalPlaces: 2},

@@ -5,6 +5,7 @@ import {
 import {Presets} from '../presets/brush_presets.js';
 
 export const PresetClasses = [];
+import {appLocalStorage} from './localStorage.js';
 
 const DIR_KEY = "p_preset_dir";
 
@@ -132,8 +133,8 @@ export class PresetManager {
 
     for (let preset of this) {
       let lskey = preset.lsKey();
-      if (lskey in localStorage) {
-        let json = JSON.parse(localStorage[lskey]);
+      if (lskey in appLocalStorage) {
+        let json = JSON.parse(appLocalStorage[lskey]);
         let date = new Date(json.date);
 
         if (date > preset.date) {
@@ -258,7 +259,7 @@ export class PresetManager {
   }
 
   recoverDirectory() {
-    delete localStorage[DIR_KEY];
+    delete appLocalStorage[DIR_KEY];
 
     let recover = (json) => {
       json = JSON.parse(json);
@@ -278,10 +279,10 @@ export class PresetManager {
       this.add(preset);
     }
 
-    for (let k in localStorage) {
+    for (let k in appLocalStorage) {
       if (k.startsWith("_preset_")) {
         try {
-          recover(localStorage[k]);
+          recover(appLocalStorage[k]);
         } catch (error) {
           util.print_stack(error);
         }
@@ -304,7 +305,7 @@ export class PresetManager {
 
     if (typeName in dir && dir[typeName].indexOf(preset.presetId) >= 0) {
       dir[typeName].remove(preset.presetId);
-      delete localStorage[lskey];
+      delete appLocalStorage[lskey];
     }
 
     this.saveDirectory(dir);
@@ -391,18 +392,18 @@ export class PresetManager {
   }
 
   getDirectory() {
-    if (DIR_KEY in localStorage) {
-      return JSON.parse(localStorage[DIR_KEY]);
+    if (DIR_KEY in appLocalStorage) {
+      return JSON.parse(appLocalStorage[DIR_KEY]);
     }
 
-    localStorage[DIR_KEY] = JSON.stringify({
+    appLocalStorage[DIR_KEY] = JSON.stringify({
       version: 0,
     });
     return {};
   }
 
   saveDirectory(dir) {
-    localStorage[DIR_KEY] = JSON.stringify(dir);
+    appLocalStorage[DIR_KEY] = JSON.stringify(dir);
   }
 }
 
@@ -507,8 +508,8 @@ export class Preset {
     let lskey = this.lsKey(id);
     let json;
 
-    if (lskey in localStorage) {
-      json = localStorage[lskey];
+    if (lskey in appLocalStorage) {
+      json = appLocalStorage[lskey];
 
       try {
         json = JSON.parse(json);
@@ -570,7 +571,7 @@ export class Preset {
 
     let json = this.createSave()
     this.date = json.date;
-    localStorage[lskey] = JSON.stringify(json);
+    appLocalStorage[lskey] = JSON.stringify(json);
   }
 
   loadSTRUCT(reader) {

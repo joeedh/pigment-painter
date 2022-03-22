@@ -1049,6 +1049,14 @@ export class ColorBlendPreview extends Container {
     let c1 = brush.color;
     let c2 = brush.color2;
 
+    if (brush.channels.get("color").flag & BrushChannelFlags.INHERIT) {
+      c1 = this.ctx.defaults.get("color").getValue();
+    }
+
+    if (brush.channels.get("color2").flag & BrushChannelFlags.INHERIT) {
+      c2 = this.ctx.defaults.get("color2").getValue();
+    }
+
     let c = new Vector4();
     let canvas = this.canvas;
     let image = this.image, idata = image.data;

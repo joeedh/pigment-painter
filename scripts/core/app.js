@@ -26,7 +26,7 @@ import {presetManager, startPresets} from './presets.js';
 import {SolverSettings} from './optimize.js';
 import {WebGLGraph} from '../layers/layers.js';
 
-const appLocalStorage = {}; //localStorage;
+import {appLocalStorage} from './localStorage.js';
 
 export class AppSettings extends simple.DataModel {
   constructor() {
@@ -133,7 +133,7 @@ export class UnifiedChannels {
       if (val.value instanceof Vector3) {
         def = st2.color3("value", "value", uiname, descr);
       } else if (val.value instanceof Vector4) {
-        def = st2.color3("value", "value", uiname, descr);
+        def = st2.color4("value", "value", uiname, descr);
       } else {
         def = st2.float("value", "value", uiname, descr);
       }

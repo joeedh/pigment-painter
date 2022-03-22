@@ -62,7 +62,7 @@ let huerets = util.cachering.fromConstructor(Vector4, 64);
 export class DotSample {
   constructor(x, y, dx, dy, t, pressure, radius                          = 0.0,
               spacing = 0.0, strength = 0.0, angle_degrees = 0.0, squish = 0.0,
-              soft                                                       = 0.0, alphaLighting = 0.0, followAngle = 0.0, hue    = 0.0) {
+              soft                                                       = 0.0, alphaLighting = 0.0, followAngle = 0.0, hue = 0.0) {
     this.x = x;
     this.y = y;
     this.dx = dx;
@@ -197,6 +197,7 @@ export class Canvas {
     this.origImage = undefined;
     this.tempImage = undefined;
     this.dimen = undefined;
+    this.loading = false;
 
     this.width = dimen;
     this.height = dimen;
@@ -980,7 +981,24 @@ export class Canvas {
     }
   }
 
-  async loadLutImage() {
+  loadLutImage() {
+    if (this.loading) {
+      return this.loading;
+    }
+
+    this.loading = this.loadLutImageIntern()
+      .then(res => {
+        this.loading = undefined;
+      }).catch(error => {
+        util.print_stack(error);
+      });
+
+    return this.loading;
+  }
+
+  async loadLutImageIntern() {
+    this.loading = true;
+
     let res = await getLUTImage();
 
     console.log("RES", res);
@@ -996,6 +1014,8 @@ export class Canvas {
 
     console.log("loaded image lookup data", res);
     this.pigments.loadLUTImage(res.image, res.dimen);
+
+    this.loading = false;
 
     return res;
   }

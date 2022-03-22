@@ -1,5 +1,6 @@
 import {simple, util, nstructjs, Vector4} from '../path.ux/pathux.js';
 import {set} from '../path.ux/scripts/path-controller/util/util.js';
+import {appLocalStorage} from './localStorage.js';
 
 export const thumbcache = new Map();
 
@@ -131,11 +132,11 @@ export function savePalette(p) {
     data  : nstructjs.writeJSON(p)
   };
 
-  localStorage[key] = JSON.stringify(json);
+  appLocalStorage[key] = JSON.stringify(json);
 }
 
 export function loadPalette(key) {
-  let json = localStorage[key];
+  let json = appLocalStorage[key];
 
   console.log("loading palettes");
 
@@ -153,7 +154,7 @@ export function loadPalette(key) {
 }
 
 function getDirectory() {
-  let directory = localStorage["_ppaint_palettes"];
+  let directory = appLocalStorage["_ppaint_palettes"];
 
   if (!directory) {
     if (palettes.length === 0) {
@@ -178,7 +179,7 @@ function getDirectory() {
 }
 
 function setDirectory(dir) {
-  localStorage["_ppaint_palettes"] = JSON.stringify(dir);
+  appLocalStorage["_ppaint_palettes"] = JSON.stringify(dir);
 }
 
 export function loadPalettes() {

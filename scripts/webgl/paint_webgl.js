@@ -379,7 +379,8 @@ export class WebGLPaint extends Canvas {
     let brush = this.brush;
     let continuous = brush.continuous;
 
-    let brushColor = brush.tool === BrushTools.ERASE ? brush.color2 : brush.color;
+    let ctx = window._appstate.ctx; //XXX
+    let brushColor = brush.tool === BrushTools.ERASE ? ctx.unified.color2.getValue() : ctx.unified.color.getValue();
 
     gl.disable(gl.SCISSOR_TEST);
 

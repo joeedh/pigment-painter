@@ -36,61 +36,61 @@ export function setInsideSolver(val) {
 
 let torgbtmp = [0, 0, 0, 0];
 
-export function getLUTImage() {
-  return platform.getPlatformAsync().then(() => {
-    let url = WIDE_GAMUT ? "lut_wide_256.png" : "lut_physical_3_257.png";
-    url = platform.platform.resolveURL("assets/" + url);
+export async function getLUTImage() {
+  await platform.getPlatformAsync();
 
-    let img;
+  let url = WIDE_GAMUT ? "lut_wide_256.png" : "lut_physical_3_257.png";
+  url = platform.platform.resolveURL("assets/" + url);
 
-    if (url in lutImages) {
-      img = lutImages[url];
+  let img;
+
+  if (url in lutImages) {
+    img = lutImages[url];
+  } else {
+    img = lutImages[url] = document.createElement("img");
+    img.src = url;
+  }
+
+  let i = url.length - 1;
+  while (i > 1 && url[i - 1] !== "_") {
+    i--;
+  }
+
+  let dimen = url.slice(i, url.length);
+  if (dimen.search(/\./) >= 0) {
+    dimen = dimen.slice(0, dimen.search(/\./)).trim();
+  }
+
+  if (isNaN(parseFloat(dimen))) {
+    console.error("dimen:", dimen);
+    throw new Error("could not get tile size from lut name, should be lut_DIMEN.png, e.g. lut_256.png");
+  }
+
+  dimen = parseInt(dimen);
+
+  await new Promise((accept, reject) => {
+    if (!img.width) {
+      img.onload = () => {
+        accept();
+      }
     } else {
-      img = lutImages[url] = document.createElement("img");
-      img.src = url;
+      accept();
     }
-
-    let i = url.length - 1;
-    while (i > 1 && url[i - 1] !== "_") {
-      i--;
-    }
-
-    let dimen = url.slice(i, url.length);
-    if (dimen.search(/\./) >= 0) {
-      dimen = dimen.slice(0, dimen.search(/\./)).trim();
-    }
-
-    if (isNaN(parseFloat(dimen))) {
-      console.error("dimen:", dimen);
-      throw new Error("could not get tile size from lut name, should be lut_DIMEN.png, e.g. lut_256.png");
-    }
-
-    dimen = parseInt(dimen);
-
-    return new Promise((accept, reject) => {
-      function finish() {
-        let canvas = document.createElement("canvas");
-        let g = canvas.getContext("2d");
-
-        canvas.width = img.width;
-        canvas.height = img.height;
-
-        g.drawImage(img, 0, 0);
-        let image = g.getImageData(0, 0, canvas.width, canvas.height);
-
-        accept({
-          image,
-          dimen
-        });
-      }
-
-      if (!img.width) {
-        img.onload = finish;
-      } else {
-        finish();
-      }
-    });
   });
+
+  let canvas = document.createElement("canvas");
+  let g = canvas.getContext("2d");
+
+  canvas.width = img.width;
+  canvas.height = img.height;
+
+  g.drawImage(img, 0, 0);
+  let image = g.getImageData(0, 0, canvas.width, canvas.height);
+
+  return {
+    image,
+    dimen
+  };
 }
 
 Math.tent = f => 1.0 - Math.abs(Math.fract(f) - 0.5)*2.0;
