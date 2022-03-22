@@ -1348,7 +1348,7 @@ export class PigmentSet extends Array {
     this.optSteps = 5;
     this.doFillInLut = true;
     this.createReverseLut = true;
-    this.lutQuality = 0.5;
+    this.lutQuality = 3.0;
     this.upscaleGoal = 128;
 
     this.useCustomKs = false;

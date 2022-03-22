@@ -138,7 +138,7 @@ export class CanvasEditor extends simple.Editor {
     this.fillInLut = true;
     this.createReverseLut = true;
     this.upscaleGoal = 128;
-    this.lutQuality = 0.5;
+    this.lutQuality = 3.0;
 
     this.glSize = new Vector2();
     this.glPos = new Vector2();
