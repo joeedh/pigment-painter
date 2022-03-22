@@ -354,6 +354,7 @@ export class Canvas {
       for (let brush2 of presetManager.getList("brush")) {
         if (brush2.tool === slot) {
           brush = brush2;
+          brush.sourcePreset = brush.name; //ensure sourcePreset exists
           ref.set(brush2);
           break;
         }

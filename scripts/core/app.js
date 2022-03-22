@@ -26,7 +26,7 @@ import {presetManager, startPresets} from './presets.js';
 import {SolverSettings} from './optimize.js';
 import {WebGLGraph} from '../layers/layers.js';
 
-const appLocalStorage = localStorage;
+const appLocalStorage = {}; //localStorage;
 
 export class AppSettings extends simple.DataModel {
   constructor() {

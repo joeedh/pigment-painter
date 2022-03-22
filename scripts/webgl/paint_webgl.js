@@ -379,6 +379,8 @@ export class WebGLPaint extends Canvas {
     let brush = this.brush;
     let continuous = brush.continuous;
 
+    let brushColor = brush.tool === BrushTools.ERASE ? brush.color2 : brush.color;
+
     gl.disable(gl.SCISSOR_TEST);
 
     let alpha = BrushAlpha.getAlphaFromId(brush.mask);
@@ -497,8 +499,8 @@ export class WebGLPaint extends Canvas {
         lastds = ds;
       }
 
-      let color1 = lastds.getColor(brush.color);
-      let color2 = ds.getColor(brush.color);
+      let color1 = lastds.getColor(brushColor);
+      let color2 = ds.getColor(brushColor);
 
       let s = ds.strength;
       let r = ds.radius;
@@ -764,7 +766,7 @@ export class WebGLPaint extends Canvas {
       invSize    : new Vector2([1.0/this.width, 1.0/this.height]),
       aspect     : this.width/this.height,
       rgba       : this.fbos[1].texColor,
-      color      : this.brush.color,
+      color      : brushColor,
       seed       : Math.random(),
       smearPickup: this.smearColor
     };

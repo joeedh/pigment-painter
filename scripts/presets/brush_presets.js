@@ -742,9 +742,63 @@ export const DrawBase = {
                       "param2", "param3", "param4", "color2"]
 };
 
+
+export const EraseBase = {
+  "name"           : "Erase", "json": {
+    "sourcePreset": "Erase", "name": "Erase", "channels": {
+      "0"    : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 2, "slideSpeed": 2}}, "1": {
+        "prop": {
+          "baseUnit"     : "pixel", "displayUnit": "pixel", "range": {"length": 2}, "uiRange": {"length": 2},
+          "decimalPlaces": 1, "slideSpeed": 2
+        }
+      }, "2" : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 2, "slideSpeed": 2}}, "3": {
+        "prop": {
+          "range": {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 2, "data": 0, "slideSpeed": 2
+        }
+      }, "4" : {
+        "prop": {
+          "range": {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 2, "data": 0, "slideSpeed": 2
+        }
+      }, "5" : {
+        "prop": {
+          "range": {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 2, "data": 0, "slideSpeed": 2
+        }
+      }, "6" : {
+        "prop": {
+          "range": {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 2, "data": 0, "slideSpeed": 2
+        }
+      }, "7" : {
+        "prop": {
+          "range": {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 2, "data": 0.15, "slideSpeed": 3
+        }
+      }, "8" : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 2, "slideSpeed": 2}}, "9": {
+        "prop": {
+          "range": {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 2,
+          "data" : {"0": 1, "1": 1, "2": 1}, "slideSpeed": 2
+        }
+      }, "10": {
+        "prop": {
+          "baseUnit"     : "degree", "displayUnit": "degree", "range": {"length": 2}, "uiRange": {"length": 2},
+          "decimalPlaces": 1, "slideSpeed": 2
+        }
+      }, "11": {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 2, "slideSpeed": 2}},
+      "12"   : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 2, "slideSpeed": 3}},
+      "13"   : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 2}},
+      "14"   : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 3, "slideSpeed": 2}},
+      "15"   : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 3, "slideSpeed": 2}},
+      "16"   : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 3, "slideSpeed": 2}},
+      "17"   : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 3, "slideSpeed": 2}},
+      "18"   : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 3, "slideSpeed": 2}},
+      "19"   : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 2, "slideSpeed": 2}}
+    }, "tool"     : 2
+  }, "channelOrder": ["strength", "radius", "hue", "scatter", "smear", "smearLen", "smearRate", "spacing",
+                      "alphaLighting", "color", "angle", "squish", "soft", "random", "alphaLightingMul", "param1",
+                      "param2", "param3", "param4", "color2"]
+};
 export const Presets = {
   DrawBase,
   SmearBase,
+  EraseBase,
   SmoothTextured,
   HatchSmear,
   RakeSmear,
