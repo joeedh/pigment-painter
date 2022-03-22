@@ -32,7 +32,8 @@ blue components swapped.  This may change.
 * The triplet LUT idea was a total failure, I'll probably remove it from the UI in the near future.
 * Ignore the Hermite mode, it works but doesn't seem to give much benefit.
 * I played around with brushes a bit; the smudge brush is somewhat advanced and there are normal mapped brush alphas. 
-
+* The current LUT is imperfect and occasionally can produce noise. 
+* The scatter setting randomizes the smudge brush, so the noise there is intentional. 
 # Changing Pigments
 
 Changing pigments is a bit tricky, since you have to regenerate the lookup tables
