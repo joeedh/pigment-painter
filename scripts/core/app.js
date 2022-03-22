@@ -49,6 +49,9 @@ export class AppSettings extends simple.DataModel {
         }
 
         cconst.simpleNumSliders = !val;
+        this.dataref.useRollerSliders = val;
+
+        _appstate.saveSettings();
 
         if (window._appstate && window._appstate.screen) {
           _appstate.screen.completeUpdate();
@@ -56,6 +59,12 @@ export class AppSettings extends simple.DataModel {
         }
       })
       .description("Use roller sliders; reload\nmay be required to fully\n take effect.");
+  }
+
+  loadSTRUCT(reader) {
+    reader(this);
+
+    this.channels.ensureTemplate(BrushChannelSet.defaultTemplate());
   }
 }
 AppSettings.STRUCT = `
@@ -414,13 +423,15 @@ export class AppState extends simple.AppState {
     let iconsheet = document.createElement("img");
     iconsheet.src = PlatformAPI.resolveURL("assets/iconsheet.svg");
 
+    this.loadSettings();
+
     startPresets();
 
     super.start({
       iconsheet,
       icons             : Icons,
       useNativeToolTips : true,
-      simpleNumSliders  : true,
+      simpleNumSliders  : !this.settings.useRollerSliders,
       theme,
       menusCanPopupAbove: true,
       DEBUG             : {
@@ -448,8 +459,6 @@ export class AppState extends simple.AppState {
         console.error("Failed to load startup file", error.message);
         onError();
       }
-
-      this.loadSettings();
     } else {
       if (WEBGL_PAINTER) {
         this.canvas.init(this.gl);

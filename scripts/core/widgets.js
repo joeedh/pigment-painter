@@ -1245,7 +1245,7 @@ export class BrushChannelWidget extends Container {
 
     let time = util.time_ms();
 
-    console.log("Brush channel widget rebuild");
+    //console.log("Brush channel widget rebuild");
     this.needsRebuild = false;
 
     this.titleframes = [];
@@ -1316,7 +1316,7 @@ export class BrushChannelWidget extends Container {
     panel.closed = true;
     panel.add(dynwidget);
 
-    console.log("time1", (util.time_ms() - time).toFixed(2) + "ms");
+    //console.log("time1", (util.time_ms() - time).toFixed(2) + "ms");
 
     /* Restore old layout */
     loadUIData(this, uidata);
@@ -1335,7 +1335,7 @@ export class BrushChannelWidget extends Container {
       }
     }
 
-    console.log("time2", (util.time_ms() - time).toFixed(2) + "ms");
+    //console.log("time2", (util.time_ms() - time).toFixed(2) + "ms");
   }
 
   getChannel() {

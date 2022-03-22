@@ -2,7 +2,7 @@ import {
   Curve1D, EnumProperty, FloatProperty, nstructjs,
   simple, util, Vec3Property, Vec4Property, Vector3, platform,
   Vector4, ToolProperty, IntProperty, FlagProperty, Vec2Property, StringProperty, ListProperty, CurveConstructors,
-  ToolOp
+  ToolOp, NumberConstraints
 } from '../path.ux/scripts/pathux.js';
 import {Pigment} from './colormodel.js';
 import {Icons} from './icon_enum.js';
@@ -471,9 +471,9 @@ let ch_ret_vec3s = util.cachering.fromConstructor(Vector3, 64);
 let ch_ret_vec4s = util.cachering.fromConstructor(Vector4, 512);
 
 export class BrushChannel {
-  constructor(name, propcls = FloatProperty) {
+  constructor(name = "(error)", propcls = FloatProperty) {
     this.name = name;
-    this.uiName = name;
+    this.uiName = ToolProperty.makeUIName(name);
     this.propClass = propcls;
 
     this.prop = new propcls();
@@ -520,32 +520,45 @@ export class BrushChannel {
 
     st.string("name", "name", "Name").readOnly();
     st.string("uiName", "uiName", "Display Name").readOnly();
+
+    function customPropCB(prop) {
+      let ch = this.dataref;
+
+      //console.log(ch.name, ch.prop.decimalPlaces, ch.prop.unit);
+
+      prop.decimalPlaces = ch.prop.decimalPlaces;
+      prop.range = ch.prop.range;
+      prop.step = ch.prop.step;
+
+      if (ch.prop.unit) {
+        prop.baseUnit = prop.displayUnit = ch.prop.unit;
+      }
+      prop.baseUnit = ch.prop.baseUnit || "none";
+      prop.displayUnit = ch.prop.displayUnit || "none";
+
+      prop.expRate = ch.prop.expRate;
+      prop.stepIsRelative = ch.prop.stepIsRelative;
+      prop.slideSpeed = ch.prop.slideSpeed;
+      prop.uiRange = ch.prop.uiRange;
+
+      return prop;
+    }
+
+    function customNameCB() {
+      return this.dataref.uiName || ToolProperty.makeUIName(this.dataref.name);
+    }
+
+    st.color4("value", "color4", "Color")
+      .customPropCallback(customPropCB)
+      .uiNameGetter(customNameCB);
+
+    st.color3("value", "color3", "Color")
+      .customPropCallback(customPropCB)
+      .uiNameGetter(customNameCB);
+
     st.float("value", "value", "Value").noUnits().decimalPlaces(3)
-      .customPropCallback(function (prop) {
-        let ch = this.dataref;
-
-        //console.log(ch.name, ch.prop.decimalPlaces, ch.prop.unit);
-
-        prop.decimalPlaces = ch.prop.decimalPlaces;
-        prop.range = ch.prop.range;
-        prop.step = ch.prop.step;
-
-        if (ch.prop.unit) {
-          prop.baseUnit = prop.displayUnit = ch.prop.unit;
-        }
-        prop.baseUnit = ch.prop.baseUnit || "none";
-        prop.displayUnit = ch.prop.displayUnit || "none";
-
-        prop.expRate = ch.prop.expRate;
-        prop.stepIsRelative = ch.prop.stepIsRelative;
-        prop.slideSpeed = ch.prop.slideSpeed;
-        prop.uiRange = ch.prop.uiRange;
-
-        return prop;
-      })
-      .uiNameGetter(function () {
-        return this.dataref.uiName || this.dataref.name;
-      });
+      .customPropCallback(customPropCB)
+      .uiNameGetter(customNameCB);
 
     st.list("dynamics", "dynamics", {
       get(api, list, key) {
@@ -738,10 +751,10 @@ export class BrushChannelSet extends Array {
     return {
       strength        : {value: 0.5, range: [0.0, 1.0], penPressure: true},
       radius          : {
-        value: 35.0, range: [0.25, 1600.0], unit: "pixel", decimalPlaces: 1, slideSpeed: 2, step: 2, expRate: 1.65
+        value: 35.0, range: [0.25, 200.0], unit: "pixel", decimalPlaces: 1, slideSpeed: 2, step: 2, expRate: 1.65
       },
       hue             : {value: 0.0, range: [-1.0, 1.0]},
-      scatter         : {value: 2.75, range: [0.0, 100.0]},
+      scatter         : {value: 2.75, range: [0.0, 10.0]},
       smear           : {value: 0.33, range: [0.0, 2.5]},
       smearLen        : {value: 3.5, range: [0.0, 5.0]},
       smearRate       : {
@@ -752,10 +765,10 @@ export class BrushChannelSet extends Array {
       alphaLighting   : {value: 0.25, range: [0.0, 2.0], uiName: "light"},
       color           : {value: new Vector4([0.6, 0.0, 0.2, 1.0]), inherit: true},
       angle           : {value: 0.0, range: [0.0, 360.0], unit: "degree", decimalPlaces: 1, step: 1},
-      squish          : {value: 0.0, range: [0.0, 1.0]},
+      squish          : {value: 0.0, range: [0.0, 0.95]},
       soft            : {value: 0.25, range: [0.0, 1.0], slideSpeed: 3.0, step: 0.05, decimalPlaces: 2},
-      random          : {value: 0.0, range: [0.0, 10.0], step: 0.25, expRate: 1.5, slideSpeed: 1.0, decimalPlaces: 2},
-      alphaLightingMul: {value: 1.0, range: [0.01, 100.0], step: 0.1, decimalPlaces: 3}, //set by brush alphas
+      random          : {value: 0.0, range: [0.0, 5.0], step: 0.25, expRate: 1.5, slideSpeed: 1.0, decimalPlaces: 2},
+      alphaLightingMul: {value: 1.0, range: [0.01, 2.0], step: 0.1, decimalPlaces: 3}, //set by brush alphas
       param1          : {value: 0.0, range: [-5.0, 5.0], step: 0.1, decimalPlaces: 3},
       param2          : {value: 0.0, range: [-5.0, 5.0], step: 0.1, decimalPlaces: 3},
       param3          : {value: 0.0, range: [-5.0, 5.0], step: 0.1, decimalPlaces: 3},
@@ -874,7 +887,7 @@ export class BrushChannelSet extends Array {
 
     this.fromTemplate(def2);
 
-    let keys = ["range", "step", "decimalPlaces", "slideSpeed", "expRate", "stepIsRelative", "baseUnit", "displayUnit"];
+    let keys = NumberConstraints;
 
     for (let k in def) {
       let v = def[k];
@@ -889,8 +902,8 @@ export class BrushChannelSet extends Array {
           ch.prop.baseUnit = ch.prop.displayUnit = v.unit;
         }
 
-        if (v.range) {
-          ch.prop.range = v.range;
+        if (!("decimalPlaces" in v)) {
+          ch.prop.decimalPlaces = 2;
         }
 
         if (v.min) {
@@ -909,6 +922,14 @@ export class BrushChannelSet extends Array {
 
         if (!("step" in v)) {
           ch.prop.step = 0.05;
+        }
+
+        if (!("slideSpeed" in v)) {
+          ch.prop.slideSpeed = 2.0;
+        }
+
+        if (!("uiRange" in v)) {
+          ch.prop.uiRange = undefined;
         }
       }
     }
@@ -956,6 +977,8 @@ export class BrushChannelSet extends Array {
 
       if ("uiName" in v) {
         ch.uiName = v.uiName;
+      } else {
+        ch.uiName = ToolProperty.makeUIName(k);
       }
 
       if ("range" in v) {
@@ -1077,7 +1100,8 @@ export class Brush extends Preset {
 
     st.enum("strokeMode", "strokeMode", StrokeModes, "Stroke Mode");
 
-    st.float("hue", "hue", "Hue").noUnits().range(-1.0, 1.0);
+
+    //add aliases to color and color2 channels
 
     st.color4("color", "color", "Color").on('change', function () {
       console.log("Color change!");
@@ -1089,15 +1113,7 @@ export class Brush extends Preset {
       this.dataref.save();
     });
 
-    st.float("radius", "radius", "Radius").noUnits().range(1, 512).step(0.5).decimalPlaces(2)
-      .on('change', onchange);
-    st.float("strength", "strength", "Strength").noUnits().range(0.0, 1.0).on('change', onchange);
-    st.float("spacing", "spacing", "Spacing").noUnits().range(0.005, 4.0);
     st.struct("pigment", "pigment", "Pigment", api.mapStruct(Pigment, true));
-    st.float("scatter", "scatter", "Scatter").range(0.0, 10.0).noUnits();
-    st.float("smear", "smear", "smear", "Smear color pickup factor").range(0.0, 1.0).noUnits();
-    st.float("smearLen", "smearLen", "Smear Len", "Smear Length").range(0.0, 50.0).noUnits();
-    st.float("smearRate", "smearRate", "Rate", "Smear Rate").range(0.0, 50.0).noUnits();
 
     //st.struct("channels", "channelSet", "Channels", api.mapStruct(BrushChannelSet, true));
     st.list("channels", "channels", {
@@ -1324,6 +1340,8 @@ export class Brush extends Preset {
 
     json.json.tool = this.tool;
     json.json.name = this.name;
+    json.json.sourcePreset = this.sourcePreset;
+
     json.name = this.name;
 
     return json;

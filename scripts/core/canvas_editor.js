@@ -361,11 +361,14 @@ export class CanvasEditor extends simple.Editor {
 
     header = header.row();
 
-    header.prop("canvas.brush.color");
-    header.tool("brush.swap_colors");
-    header.prop("canvas.brush.color2");
-    header.prop("canvas.brush.radius");
-    header.prop("canvas.brush.strength");
+    header.useIcons(true);
+
+    header.prop("brush.channels['color'].color4");
+    header.tool("brush.swap_colors()");
+    header.prop("brush.channels['color2'].color4");
+
+    header.prop("brush.channels['radius'].value");
+    header.prop("brush.channels['strength'].value");
 
     sidebar.width = 340;
   }
