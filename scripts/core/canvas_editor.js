@@ -2,7 +2,8 @@ import {
   simple, UIBase, Vector4, Vector3,
   Vector2, Quat, Matrix4, util, nstructjs,
   KeyMap, HotKey, eventWasTouch, PackFlags,
-  Container, saveUIData, loadUIData, pushModalLight, popModalLight, keymap, sendNote
+  Container, saveUIData, loadUIData, pushModalLight,
+  popModalLight, keymap, sendNote, cconst, haveModal
 } from '../path.ux/scripts/pathux.js';
 
 import './pigment_editor.js';
@@ -158,6 +159,8 @@ export class CanvasEditor extends simple.Editor {
     this.defineKeyMap();
 
     this.sidebar = this.makeSideBar();
+    this.needsSidebarRebuild = true;
+    this._last_sidebar_key = undefined;
   }
 
   static define() {
@@ -365,88 +368,55 @@ export class CanvasEditor extends simple.Editor {
     header.prop("canvas.brush.strength");
 
     sidebar.width = 340;
-    let tab;
+  }
 
-    let _proptab, _proprow, _i = 0;
-    let makeBrushProp = (con, name) => {
-      if (!_proptab) {
-        _proptab = con;
-      }
-
-      if (_i%2 === 0) {
-        con = _proprow = _proptab.row();
-      } else {
-        con = _proprow;
-      }
-      _i++;
-
-      con = con.row();
-      con.noMarginsOrPadding();
-
-      con.overrideClassDefault("panel", "TitleBackground", "transparent");
-      con.overrideClassDefault("panel", "TitleBorder", "transparent");
-      con.overrideClassDefault("panel", "background-color", "transparent");
-      con.overrideClassDefault("panel", "border-color", "transparent");
-      con.overrideClassDefault("panel", "margin-top", 1);
-      con.overrideClassDefault("panel", "margin-bottom", 1);
-      con.overrideClassDefault("panel", "padding-top", 1);
-      con.overrideClassDefault("panel", "padding-bottom", 1);
-
-      let panel = con.panel("");
-      let row = panel.titleframe;
-
-      /* bypass panel's update bypassing when closed */
-
-      sidebar.update.after(() => {
-        row.flushUpdate(true);
-      });
-
-      row.overrideClassDefault("numslider", "labelOnTop", false);
-      row.overrideClassDefault("numslider_textbox", "labelOnTop", false);
-      row.overrideClassDefault("numslider_simple", "labelOnTop", false);
-
-      let path = `canvas.brush.channels['${name}']`;
-
-      row.useIcons(true);
-      row.prop(path + ".dynamics['pressure'].flag[ENABLED]").iconsheet = 0;
-
-      let ch = this.ctx.api.getValue(this.ctx, path);
-
-      row.slider(path + ".value", {
-        packflag: PackFlags.NO_NUMSLIDER_TEXTBOX
-      });
-
-      panel.iconcheck.remove();
-      panel.titleframe.add(panel.iconcheck);
-
-      for (let dyn of ch.dynamics) {
-        let path2 = `${path}.dynamics['${dyn.name}']`;
-        let row = panel.row();
-
-        let panel2 = panel.panel(dyn.name);
-        panel2.titleframe.useIcons(true);
-        let icon = panel2.titleframe.prop(path2 + ".flag[ENABLED]");
-
-        icon._icon = Icons.LARGE_UNCHECKED;
-        icon._icon_pressed = Icons.LARGE_CHECK;
-
-        sidebar.update.after(() => {
-          panel2.titleframe.flushUpdate(true);
-        });
-
-        panel2.curve1d(path2 + ".curve");
-        panel2.prop(path2 + ".factor");
-        panel2.prop(path2 + ".scale");
-        panel2.prop(path2 + ".flag[PERIODIC]");
-        panel2.prop(path2 + ".periodFunc");
-
-        panel2.closed = true;
-      }
-
-      panel.closed = true;
+  rebuildSidebar() {
+    if (haveModal()) {
+      return;
     }
 
+    console.log("Rebuilding sidebar tabs");
+
+    this.needsSidebarRebuild = false;
+
+    let uidata = saveUIData(this.sidebar, "sidebar");
+
+    let sidebar = this.sidebar;
+    let tab, panel;
+
+    sidebar.tabbar.clear();
+
     tab = sidebar.tab("Brush");
+
+    let _proptab, _proprow, _i = 0;
+
+    if (cconst.simpleNumSliders) {
+      _proprow = tab;
+    }
+
+    let makeBrushProp = (con, name) => {
+      /* Arrange sliders in two columns if we're in roller
+      *  slider mode.  Presently disabled. */
+      if (0 && !cconst.simpleNumSliders) {
+        if (!_proptab) {
+          _proptab = con;
+        }
+
+
+        if (_i%2 === 0) {
+          con = _proprow = _proptab.row();
+        } else {
+          con = _proprow;
+        }
+      }
+
+      _i++;
+
+      let widget = UIBase.createElement("brush-channel-widget-x");
+      widget.setAttribute("datapath", `canvas.brush.channels['${name}']`);
+
+      con.add(widget);
+    }
 
     tab.useIcons(true);
     tab.row().prop("canvas.activeBrush");
@@ -477,25 +447,28 @@ export class CanvasEditor extends simple.Editor {
 
     tab.add(pal);
 
-    makeBrushProp(tab, "soft");
-    makeBrushProp(tab, "spacing");
-    makeBrushProp(tab, "hue");
-    makeBrushProp(tab, "scatter");
-    makeBrushProp(tab, "random");
-    makeBrushProp(tab, "smear");
-    makeBrushProp(tab, "smearLen");
-    makeBrushProp(tab, "smearRate");
-    makeBrushProp(tab, "angle");
-    makeBrushProp(tab, "squish");
+    panel = tab.panel("Brush Settings");
 
-    //tab.prop("canvas.brush.radius");
-    tab.prop("canvas.brush.mask");
+    makeBrushProp(panel, "soft");
+    makeBrushProp(panel, "spacing");
+    makeBrushProp(panel, "hue");
+    makeBrushProp(panel, "scatter");
+    makeBrushProp(panel, "random");
+    makeBrushProp(panel, "smear");
+    makeBrushProp(panel, "smearLen");
+    makeBrushProp(panel, "smearRate");
+    makeBrushProp(panel, "angle");
+    makeBrushProp(panel, "squish");
 
-    makeBrushProp(tab, "alphaLighting");
+    //panel.prop("canvas.brush.radius");
+    panel.prop("canvas.brush.mask");
 
-    makeBrushProp(tab, "param1");
-    makeBrushProp(tab, "param2");
-    makeBrushProp(tab, "param3");
+    makeBrushProp(panel, "alphaLighting");
+
+    makeBrushProp(panel, "param1");
+    makeBrushProp(panel, "param2");
+    makeBrushProp(panel, "param3");
+
 
     tab.prop("canvas.brush.strokeMode");
     tab.prop("canvas.brush.flag[FOLLOW]");
@@ -526,28 +499,35 @@ export class CanvasEditor extends simple.Editor {
     let led = UIBase.createElement("pigment-lut-editor-x");
     tab.add(led);
 
-    tab = sidebar.tab("Triplet LUT");
+    if (0) {
+      tab = sidebar.tab("Triplet LUT");
 
-    let tripletEditor = UIBase.createElement("color-triplet-editor-x");
-    tripletEditor.setAttribute("datapath", "colorTriplets");
-    tripletEditor.ctx = this.ctx;
-    tripletEditor._init();
+      let tripletEditor = UIBase.createElement("color-triplet-editor-x");
+      tripletEditor.setAttribute("datapath", "colorTriplets");
+      tripletEditor.ctx = this.ctx;
+      tripletEditor._init();
 
-    console.log("tripletEditor", tripletEditor);
+      console.log("tripletEditor", tripletEditor);
 
-    tab.add(tripletEditor);
+      tab.add(tripletEditor);
+    }
 
     tab = sidebar.tab("Brush Editor");
     let bedit = UIBase.createElement("brush-stack-editor-x");
     bedit.setAttribute("datapath", "brushstack");
     tab.add(bedit);
 
-    for (let i = 0; i < 3; i++) {
-      this.flushSetCSS();
+    tab = sidebar.tab("Settings");
+    tab.prop("settings.useRollerSliders");
+
+    loadUIData(this.sidebar, uidata);
+
+    this.flushSetCSS();
+
+    for (let i = 0; i < 2; i++) {
       this.flushUpdate();
     }
   }
-
 
   defineKeyMap() {
     this.keymap = new KeyMap([
@@ -641,6 +621,17 @@ export class CanvasEditor extends simple.Editor {
 
   update() {
     super.update();
+
+    let key = cconst.simpleNumSliders;
+
+    if (key !== this._last_sidebar_key) {
+      this.needsSidebarRebuild = true;
+      this._last_sidebar_key = key;
+    }
+
+    if (this.needsSidebarRebuild) {
+      this.rebuildSidebar();
+    }
 
     this.ctx.pigments.updateWasm();
 

@@ -196,7 +196,7 @@ export class WebGLPaint extends Canvas {
     super(dimen);
 
     this.paintPigmentsDirect = false;
-    this.triLinearSample = false;
+    this.triLinearSample = true;
 
     this.meshCache = [];
     this.gpuMeshCache = new Array(8192);

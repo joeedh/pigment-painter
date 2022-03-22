@@ -33,6 +33,8 @@ export const Icons = {
   TRASH          : 31,
   ENABLE_PRESSURE: 32,
   LARGE_UNCHECKED: 33,
-  REFRESH        : 34
+  REFRESH        : 34,
+  AUTOMATIC      : 35,
+  PALETTE        : 36,
 };
 

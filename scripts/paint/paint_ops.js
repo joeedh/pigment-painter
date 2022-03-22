@@ -127,8 +127,8 @@ export class BrushStrokeOp extends ImageOp {
       this.lastMpos.loadXY(x, y);
       this.mpos.loadXY(x, y);
 
-      let radius = brush.channels.evaluate("radius", inputs)*dpi;
-      let spacing = brush.channels.evaluate("spacing", inputs);
+      let radius = brush.channels.evaluate("radius", inputs, ctx.defaults)*dpi;
+      let spacing = brush.channels.evaluate("spacing", inputs, ctx.defaults);
       this.stroker = new Stroker(this.pointCallback.bind(this), true, x, y, radius, spacing);
     } else {
       this.stroker = new Stroker(this.pointCallback.bind(this), false);
@@ -146,6 +146,8 @@ export class BrushStrokeOp extends ImageOp {
   }
 
   pointCallback(x, y, dx, dy, t, dt, deltaS) {
+    let defaults = this.modal_ctx.defaults;
+
     dx *= deltaS/dt;
     dy *= deltaS/dt;
 
@@ -166,7 +168,7 @@ export class BrushStrokeOp extends ImageOp {
         ds[k] = a + (b - a)*t;
 
         if (brush.channels.has(k)) {
-          ds[k] = brush.channels.get(k).evaluate(this.deviceInputs, ds[k]);
+          ds[k] = brush.channels.get(k).evaluate(this.deviceInputs, ds[k], defaults);
         }
       }
     }
@@ -247,8 +249,8 @@ export class BrushStrokeOp extends ImageOp {
 
     this.storeParams(this.cur, brush, inputs);
 
-    let radius = brush.channels.evaluate("radius", inputs)*dpi;
-    let spacing = brush.channels.evaluate("spacing", inputs);
+    let radius = brush.channels.evaluate("radius", inputs, ctx.defaults)*dpi;
+    let spacing = brush.channels.evaluate("spacing", inputs, ctx.defaults);
     this.stroker.onInput(x, y, radius, spacing);
 
     this.lastMpos.loadXY(x, y);
@@ -463,13 +465,13 @@ export class _BrushStrokeOp extends ImageOp {
     let angle = Math.atan2(dy, dx)/Math.PI/2.0 + 0.5;
 
     const mappings = {pressure, tiltx, tilty, tilt_angle, angle, tilt, distance: this.t*0.05};
-    let radius = brush.channels.evaluate("radius", mappings)*devicePixelRatio;
+    let radius = brush.channels.evaluate("radius", mappings, ctx.defaults)*devicePixelRatio;
 
     if (was_first) {
       this.last.dv.load(this.dv);
 
       for (let ch of brush.channels) {
-        this.last[ch.name] = ch.evaluate(mappings);
+        this.last[ch.name] = ch.evaluate(mappings, undefined, ctx.defaults);
       }
     }
 
@@ -531,7 +533,7 @@ export class _BrushStrokeOp extends ImageOp {
 
         if (ds[ch.name] !== undefined) {
           ds[ch.name] = this.last[ch.name];
-          ds[ch.name] += (ch.evaluate(mappings) - ds[ch.name])*s;
+          ds[ch.name] += (ch.evaluate(mappings, undefined, ctx.defaults) - ds[ch.name])*s;
         } else {
           console.warn("DotSample is missing a field:", ch.name);
         }
@@ -549,7 +551,7 @@ export class _BrushStrokeOp extends ImageOp {
       ds.dx = dv[0];
       ds.dy = dv[1];
 
-      ds.angle = brush.channels.evaluate("angle", mappings)/180.0*Math.PI;
+      ds.angle = brush.channels.evaluate("angle", mappings, ctx.defaults)/180.0*Math.PI;
 
       //dv = dcubic2(cv[0], cv[1], cv[2], cv[3], s2);
       //dv = dcubic2(cv[0], cv[1], cv[2], cv[3], Math.max(s - subspace*0.5, 0));
@@ -567,7 +569,7 @@ export class _BrushStrokeOp extends ImageOp {
       return ds;
     }
 
-    let subspace = brush.channels.evaluate("spacing", mappings);
+    let subspace = brush.channels.evaluate("spacing", mappings, ctx.defaults);
 
     if (subspace > 0.1) {
       let goalsubspace = 0.1;
@@ -586,7 +588,7 @@ export class _BrushStrokeOp extends ImageOp {
       this.skipi++;
     }
 
-    //console.log("Skip", skip, subspace, brush.channels.evaluate("spacing", mappings));
+    //console.log("Skip", skip, subspace, brush.channels.evaluate("spacing", mappings, ctx.defaults));
 
     if (subspace === 0.0) {
       console.error("spacing was 0!");

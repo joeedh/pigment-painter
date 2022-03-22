@@ -115,6 +115,10 @@ export class TestContext {
   constructor(state) {
     this.state = state;
   }
+  
+  get defaults() {
+    return this.settings.channels;
+  }
 
   get settings() {
     return this.state.test.settings;

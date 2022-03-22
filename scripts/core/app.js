@@ -4,7 +4,7 @@ import './settings_editor.js';
 
 import {
   simple, Vector2, Vector3, Vector4,
-  nstructjs, util, UIBase, ToolOp
+  nstructjs, util, UIBase, ToolOp, cconst
 } from '../path.ux/pathux.js';
 
 import {Palette, palettes} from './palette.js';
@@ -12,7 +12,7 @@ import {Palette, palettes} from './palette.js';
 import {theme} from './theme.js';
 
 import {PlatformAPI} from '../path.ux/scripts/platforms/platform_base.js';
-import {Canvas, Brush, getSearchOffs, BrushTools} from './canvas.js';
+import {Canvas, Brush, getSearchOffs, BrushTools, BrushChannelSet} from './canvas.js';
 import {CanvasEditor} from './canvas_editor.js';
 import {Icons} from './icon_enum.js';
 import {init_webgl} from '../webgl/webgl.js';
@@ -30,17 +30,39 @@ export class AppSettings extends simple.DataModel {
   constructor() {
     super();
 
+    let brush = new Brush();
+
     this.solverSettings = new SolverSettings();
+    this.channels = brush.channels;
+    this.useRollerSliders = false;
   }
 
   static defineAPI(api, st) {
     st.struct("solverSettings", "solverSettings", "Solver Settings", api.mapStruct(SolverSettings));
+    st.struct("channels", "channels", "Channels", api.mapStruct(BrushChannelSet));
+    st.bool("useRollerSliders", "useRollerSliders", "Roller Sliders")
+      .customGetSet(function get() {
+        return !cconst.simpleNumSliders;
+      }, function set(val) {
+        if (!!val === !cconst.simpleNumSliders) {
+          return;
+        }
+
+        cconst.simpleNumSliders = !val;
+
+        if (window._appstate && window._appstate.screen) {
+          _appstate.screen.completeUpdate();
+          _appstate.screen.completeUpdate();
+        }
+      })
+      .description("Use roller sliders; reload\nmay be required to fully\n take effect.");
   }
 }
-
 AppSettings.STRUCT = `
 AppSettings {
-  solverSettings : SolverSettings;
+  solverSettings   : SolverSettings;
+  channels         : BrushChannelSet;
+  useRollerSliders : bool;
 }
 `;
 simple.DataModel.register(AppSettings);
@@ -48,6 +70,10 @@ simple.DataModel.register(AppSettings);
 export class Context {
   get canvas() {
     return window._appstate.canvas;
+  }
+
+  get defaults() {
+    return this.settings.channels;
   }
 
   get settings() {
@@ -91,6 +117,7 @@ export class Context {
   }
 
   static defineAPI(api, strct) {
+    strct.struct("defaults", "defaults", "Defaults", api.mapStruct(BrushChannelSet));
     strct.struct("canvas", "canvas", "Canvas", api.mapStruct(WebGLPaint));
     strct.struct("canvasEditor", "canvasEditor", "Canvas Editor", api.mapStruct(CanvasEditor));
     strct.struct("brush", "brush", "Brush", api.mapStruct(Brush));
@@ -144,7 +171,7 @@ export class AppState extends simple.AppState {
 
     this.brushstack = new BrushCommandStack();
     this.imageGraph = new WebGLGraph();
-    
+
     this.toolstack.enforceMemLimit = true;
     //this.toolstack.memLimit = 8*1024*1024;
 
@@ -183,7 +210,7 @@ export class AppState extends simple.AppState {
     json = {
       settingsVersion: 0,
       json,
-      schema : nstructjs.write_scripts()
+      schema         : nstructjs.write_scripts()
     };
 
     localStorage[LOCAL_STORAGE_SETTINGS_KEY] = JSON.stringify(json);
@@ -391,8 +418,9 @@ export class AppState extends simple.AppState {
 
     super.start({
       iconsheet,
-      icons: Icons,
-      //simpleNumSliders : true,
+      icons             : Icons,
+      useNativeToolTips : true,
+      simpleNumSliders  : true,
       theme,
       menusCanPopupAbove: true,
       DEBUG             : {

@@ -357,12 +357,12 @@ export const theme = {
 
   numslider_simple: {
     BoxHighlight      : 'rgba(74,137,179, 1)',
-    SlideHeight       : 10,
-    TextBoxWidth      : 45,
+    SlideHeight       : 8,
+    TextBoxWidth      : 25,
     'background-color': 'rgba(219,219,219, 1)',
-    height            : 23,
+    height            : 15,
     labelOnTop        : true,
-    width             : 135,
+    width             : 115,
   },
 
   numslider_textbox: {

@@ -43,6 +43,11 @@ export const BrushAlphaFlags = {
   READY: 1
 };
 
+export const BrushChannelFlags = {
+  INHERIT         : 1,
+  INHERIT_DYNAMICS: 2,
+};
+
 export class BrushAlpha {
   constructor(name, image, tilesize, alphaLightingMul = 1.0) {
     //compensates lighting so lighten/darken cancels itself out
@@ -472,7 +477,7 @@ export class BrushChannel {
     this.propClass = propcls;
 
     this.prop = new propcls();
-    this.prop.name = name;
+    this.prop.name = this.prop.apiname = name;
     this.prop.uiName = this.uiName;
 
     this.prop.range = [0.0, 1.0];
@@ -485,6 +490,8 @@ export class BrushChannel {
     this.dynamics.add("tilty");
     this.dynamics.add("tilt_angle");
     this.dynamics.add("angle");
+
+    this.flag = 0;
 
     let dyn = this.dynamics.add("distance");
 
@@ -501,6 +508,16 @@ export class BrushChannel {
   }
 
   static defineAPI(api, st) {
+    st.flags("flag", "flag", BrushChannelFlags, "Flags").icons({
+      INHERIT: Icons.AUTOMATIC
+    }).uiNames({
+      INHERIT         : "Shared",
+      INHERIT_DYNAMICS: "Shared Dynamics",
+    }).descriptions({
+      INHERIT         : "Use shared setting instead of\nlocal brush one.",
+      INHERIT_DYNAMICS: "Use shared dynamics too.\nShared must be enabled.",
+    });
+
     st.string("name", "name", "Name").readOnly();
     st.string("uiName", "uiName", "Display Name").readOnly();
     st.float("value", "value", "Value").noUnits().decimalPlaces(3)
@@ -557,10 +574,13 @@ export class BrushChannel {
       dyn.hash(digest);
     }
 
+    digest.add(this.flag);
+
     return digest.get();
   }
 
   copyTo(b) {
+    b.flag = this.flag;
     b.name = this.name;
     b.uiName = this.uiName;
     b.propClass = this.propClass;
@@ -584,7 +604,15 @@ export class BrushChannel {
     this.prop.setValue(v);
   }
 
-  evaluate(inputs = {}, f = this.getValue()) {
+  evaluate(inputs = {}, f = this.getValue(), parentSet = undefined) {
+    if (parentSet && (this.flag & BrushChannelFlags.INHERIT)) {
+      f = parentSet.get(this.name).getValue();
+    }
+
+    if (this.flag & BrushChannelFlags.INHERIT_DYNAMICS) {
+      return parentSet.get(this.name).evaluate(inputs, f);
+    }
+
     if (typeof f === "object") {
       f = f.length === 3 ? ch_ret_vec3s.next().load(f) : ch_ret_vec4s.next().load(f);
 
@@ -621,6 +649,8 @@ export class BrushChannel {
     for (let key of dynamics) {
       this.dynamics.ensure(key);
     }
+
+    this.prop.apiname = this.prop.name = this.name;
 
     if (0) {
       /*restore ui limits*/
@@ -689,6 +719,7 @@ export class BrushChannel {
 BrushChannel.STRUCT = `
 BrushChannel {
   name     : string;
+  flag     : int;
   uiName   : string;
   prop     : abstract(ToolProperty);
   dynamics : BrushDynamics;
@@ -713,11 +744,13 @@ export class BrushChannelSet extends Array {
       scatter         : {value: 2.75, range: [0.0, 100.0]},
       smear           : {value: 0.33, range: [0.0, 2.5]},
       smearLen        : {value: 3.5, range: [0.0, 5.0]},
-      smearRate       : {value: 1.2, uiName: "Rate"},
+      smearRate       : {
+        value      : 1.2, uiName: "Rate", range: [0.0, 2.0], slideSpeed: 2.0, decimalPlaces: 2,
+        description: "Smear color pickup rate."
+      },
       spacing         : {value: 0.25, range: [0.001, 2.5], step: 0.05, slideSpeed: 3.0, decimalPlaces: 2, expRate: 2.0},
       alphaLighting   : {value: 0.25, range: [0.0, 2.0], uiName: "light"},
-      color           : new Vector4([0.6, 0.0, 0.2, 1.0]),
-      color2          : new Vector4([1.0, 1.0, 1.0, 1.0]),
+      color           : {value: new Vector4([0.6, 0.0, 0.2, 1.0]), inherit: true},
       angle           : {value: 0.0, range: [0.0, 360.0], unit: "degree", decimalPlaces: 1, step: 1},
       squish          : {value: 0.0, range: [0.0, 1.0]},
       soft            : {value: 0.25, range: [0.0, 1.0], slideSpeed: 3.0, step: 0.05, decimalPlaces: 2},
@@ -727,11 +760,32 @@ export class BrushChannelSet extends Array {
       param2          : {value: 0.0, range: [-5.0, 5.0], step: 0.1, decimalPlaces: 3},
       param3          : {value: 0.0, range: [-5.0, 5.0], step: 0.1, decimalPlaces: 3},
       param4          : {value: 0.0, range: [-5.0, 5.0], step: 0.1, decimalPlaces: 3},
+      color2          : {value: new Vector4([1.0, 1.0, 1.0, 1.0]), inherit: true},
     }
   }
 
   static defineAPI(api, st) {
+    st.list("", "channels", {
+      get(api, list, key) {
+        return list.get(key);
+      },
 
+      getKey(api, list, obj) {
+        return obj.name;
+      },
+
+      getStruct(api, list, key) {
+        return api.mapStruct(BrushChannel, true);
+      },
+
+      getLength(api, list) {
+        return list.nameMap.size;
+      },
+
+      getIter(api, list) {
+        return list[Symbol.iterator]();
+      }
+    });
   }
 
   copy() {
@@ -776,12 +830,12 @@ export class BrushChannelSet extends Array {
     }
   }
 
-  evaluate(name, inputs) {
+  evaluate(name, inputs, parentSet) {
     if (!this.nameMap.has(name)) {
       throw new Error("unknown channel " + name);
     }
 
-    return this.get(name).evaluate(inputs);
+    return this.get(name).evaluate(inputs, undefined, parentSet);
   }
 
   getValue(name) {
@@ -883,7 +937,18 @@ export class BrushChannelSet extends Array {
         cls = v.value.length === 3 ? Vec3Property : Vec4Property;
       }
 
+      let hadCh = this.nameMap.has(k);
+      let flag = 0;
+
       let ch = this.ensure(k, cls);
+
+      if (v.inherit) {
+        flag |= BrushChannelFlags.INHERIT;
+      }
+
+      if (!hadCh) {
+        ch.flag = flag;
+      }
 
       if (v.value !== undefined) {
         ch.setValue(v.value);
@@ -1041,7 +1106,7 @@ export class Brush extends Preset {
       },
 
       getKey(api, list, obj) {
-        return key.name;
+        return obj.name;
       },
 
       getStruct(api, list, key) {
@@ -1050,6 +1115,9 @@ export class Brush extends Preset {
 
       getLength(api, list) {
         return list.nameMap.size;
+      },
+      getIter(api, list) {
+        return list[Symbol.iterator]();
       }
     });
 
@@ -1081,7 +1149,34 @@ export class Brush extends Preset {
   }
 
   static applyDeltaSave(json) {
-    let defjson = new Brush().createSave();
+    //default brush
+    let defbrush = new Brush();
+
+    let channels = defbrush.channels;
+
+    if (json.channelOrder) {
+      //clear all channels
+      defbrush.channels = new BrushChannelSet();
+
+      let order = {};
+      for (let i = 0; i < channels.length; i++) {
+        order[channels[i].name] = i;
+      }
+
+      for (let i = 0; i < json.channelOrder.length; i++) {
+        let ch = order[json.channelOrder[i]];
+        if (ch !== undefined) {
+          ch = channels[ch];
+        } else {
+          console.warn("Unknown channel " + json.channelOrder[i]);
+          continue;
+        }
+
+        defbrush.channels.push(ch);
+      }
+    }
+
+    let defjson = defbrush.createSave();
 
     let rec = (j1, j2) => {
       for (let k in j2) {
@@ -1101,13 +1196,13 @@ export class Brush extends Preset {
             k = parseInt(k);
 
             if (typeof v1[k] === "object") {
-              rec(v1[k], v2[k]);
+              rec(v1[k], v2[k], j1, j2);
             } else {
               v1[k] = v2[k];
             }
           }
         } else if (typeof v1 === "object") {
-          rec(v1, v2);
+          rec(v1, v2, j1, j2);
         } else {
           j1[k] = v2;
         }
@@ -1119,17 +1214,57 @@ export class Brush extends Preset {
     return defjson;
   }
 
+  fixChannelOrder() {
+    let brush = new Brush();
+
+    let order = {};
+    let channels = brush.channels;
+
+    for (let i = 0; i < channels.length; i++) {
+      let ch = channels[i];
+
+      order[ch.name] = i;
+    }
+
+    let extra = [];
+
+    let channels2 = util.list(this.channels);
+    for (let i = 0; i < channels2.length; i++) {
+      let ch = channels2[i];
+
+      if (ch.name in order) {
+        this.channels[order[ch.name]] = ch;
+      } else {
+        extra.push(ch);
+      }
+    }
+
+    for (let ch of extra) {
+      this.channels.remove(ch);
+      this.channels.push(ch);
+    }
+  }
+
   createDeltaSave() {
+    this.fixChannelOrder();
+
     let json = this.createSave();
     let defjson = new Brush();
+
+    json.channelOrder = util.list(this.channels).map(f => f.name);
 
     defjson.presetId = this.presetId;
     defjson.date = this.date;
 
     defjson = defjson.createSave();
 
-    let rec = (j1, j2) => {
+    let rec = (j1, j2, lastj1, lastj2) => {
       let allsame = true;
+
+      if (typeof j1 !== "object" || typeof j2 !== "object") {
+        console.error("not an object:", j1, j2, lastj1, lastj2);
+        return;
+      }
 
       for (let k in j2) {
         if (!(k in j1)) {
@@ -1145,7 +1280,13 @@ export class Brush extends Preset {
           let newarray = {length: v2.length};
 
           for (let i = 0; i < v2.length; i++) {
-            let same = v1.length > i ? rec(v1[i], v2[i]) : false;
+            let same;
+
+            if (typeof v1[i] === "object") {
+              same = v1.length > i ? rec(v1[i], v2[i], j1, j2) : false;
+            } else {
+              same = v1[i] === v2[i];
+            }
 
             if (!same) {
               allsame = false;
@@ -1155,7 +1296,7 @@ export class Brush extends Preset {
 
           j2[k] = newarray;
         } else if (typeof v2 === "object") {
-          let same = rec(v1, v2);
+          let same = rec(v1, v2, j1, j2);
 
           if (same) {
             delete j2[k];
@@ -1218,15 +1359,6 @@ export class Brush extends Preset {
 
     b.channels = this.channels.copy();
 
-    b.color.load(this.color);
-    b.color2.load(this.color2);
-    b.smear = this.smear;
-    b.smearLen = this.smearLen;
-    b.smearRate = this.smearRate;
-    b.strength = this.strength;
-    b.radius = this.radius;
-    b.scatter = this.scatter;
-    b.spacing = this.spacing;
     b.tool = this.tool;
     b.pigments = this.pigments;
     b.mixMode = this.mixMode;
@@ -1275,6 +1407,7 @@ export class Brush extends Preset {
     reader(this);
 
     this.channels.ensureTemplate(BrushChannelSet.defaultTemplate());
+    this.fixChannelOrder();
   }
 }
 

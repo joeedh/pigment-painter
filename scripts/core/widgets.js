@@ -3,13 +3,14 @@ import {
   Vector4, Matrix4, Quat, math, UIBase,
   Container, saveUIData, loadUIData, ToolOp, IntProperty,
   Vec4Property, EnumProperty, iconmanager, StringProperty,
-  popModalLight, pushModalLight, keymap, parsepx
+  popModalLight, pushModalLight, keymap, parsepx, PackFlags,
+  haveModal, cconst, PanelFrame
 } from '../path.ux/scripts/pathux.js';
 import {Icons} from './icon_enum.js';
 
 import '../webgl/brush_webgl_ops.js';
 import {presetManager} from './presets.js';
-import {Brush, BrushMixModes, BrushTools} from './brush.js';
+import {Brush, BrushChannelFlags, BrushMixModes, BrushTools} from './brush.js';
 import {Presets} from '../presets/brush_presets.js';
 import {Optimizer} from './optimize.js';
 import {Pigment, pigment_data, START_REFL_K1, START_REFL_K2} from './colormodel.js';
@@ -19,14 +20,14 @@ export const BrushIconCache = new Map();
 
 export function copyPigmentData(p) {
   let p2 = {
-    pigmentKS : []
+    pigmentKS: []
   };
 
   for (let pdata of p.pigmentKS) {
     pdata = {
-      name : pdata.name,
-      K : util.list(pdata.K),
-      S : util.list(pdata.S)
+      name: pdata.name,
+      K   : util.list(pdata.K),
+      S   : util.list(pdata.S)
     }
 
     p2.pigmentKS.push(pdata);
@@ -39,15 +40,15 @@ export function loadPigmentData(ps, dst, src) {
   let p1 = dst.pigmentKS;
   let p2 = src.pigmentKS;
 
-  for (let i=0; i<p1.length; i++) {
+  for (let i = 0; i < p1.length; i++) {
     let a = p1[i];
     let b = p2[i];
 
-    for (let i=0; i<a.K.length; i++) {
+    for (let i = 0; i < a.K.length; i++) {
       a.K[i] = b.K[i];
     }
 
-    for (let i=0; i<a.S.length; i++) {
+    for (let i = 0; i < a.S.length; i++) {
       a.S[i] = b.S[i];
     }
   }
@@ -60,8 +61,8 @@ export function loadPigmentData(ps, dst, src) {
 export class ResetPigmentData extends ToolOp {
   static tooldef() {
     return {
-      uiname : "Reset Data",
-      toolpath : "pigment.reset_data",
+      uiname  : "Reset Data",
+      toolpath: "pigment.reset_data",
     }
   }
 
@@ -77,6 +78,7 @@ export class ResetPigmentData extends ToolOp {
     loadPigmentData(ctx.pigments, pigment_data, pigment_data_orig);
   }
 }
+
 ToolOp.register(ResetPigmentData);
 
 export class TripletOp extends ToolOp {
@@ -998,6 +1000,12 @@ export class ColorBlendPreview extends Container {
     this.setCSS();
   }
 
+  static define() {
+    return {
+      tagname: "color-preview-x"
+    }
+  }
+
   updateSize() {
     let dpi = UIBase.getDPI();
 
@@ -1022,7 +1030,7 @@ export class ColorBlendPreview extends Container {
 
   saveData() {
     return Object.assign({
-      showRaw : this.showRaw.checked
+      showRaw: this.showRaw.checked
     }, super.saveData());
   }
 
@@ -1044,7 +1052,7 @@ export class ColorBlendPreview extends Container {
     let c = new Vector4();
     let canvas = this.canvas;
     let image = this.image, idata = image.data;
-    let t = 0.0, dt = 1.0 / (image.width - 1);
+    let t = 0.0, dt = 1.0/(image.width - 1);
 
     let colors = [c1, c2];
     let ws = [0, 0];
@@ -1073,7 +1081,7 @@ export class ColorBlendPreview extends Container {
 
     const doRaw = this.showRaw.checked;
 
-    for (let i=0; i<image.width; i++, t += dt) {
+    for (let i = 0; i < image.width; i++, t += dt) {
       c.load(c1).interp(c2, t)
 
       ws[0] = 1.0 - t;
@@ -1083,9 +1091,9 @@ export class ColorBlendPreview extends Container {
       c.loadXYZ(d[0], d[1], d[2]);
 
       idata[i*4] = c[0]*255;
-      idata[i*4+1] = c[1]*255;
-      idata[i*4+2] = c[2]*255;
-      idata[i*4+3] = c[3]*255;
+      idata[i*4 + 1] = c[1]*255;
+      idata[i*4 + 2] = c[2]*255;
+      idata[i*4 + 3] = c[3]*255;
     }
 
     this.g.putImageData(image, 0, 0);
@@ -1119,12 +1127,258 @@ export class ColorBlendPreview extends Container {
       this.redraw();
     }
   }
+}
+
+UIBase.register(ColorBlendPreview);
+
+export class BrushDynamicsWidget extends Container {
+  constructor() {
+    super();
+
+    this.needsRebuild = true;
+    this._last_update_key = undefined;
+    this.titleframes = [];
+  }
 
   static define() {
     return {
-      tagname: "color-preview-x"
+      tagname: "brush-channel-dynamics-x"
+    }
+  }
+
+  rebuild() {
+    let visible = this.isConnected && !this.hidden;
+
+    let p = this.parentWidget;
+    while (p) {
+      if (p instanceof PanelFrame && p.closed) {
+        visible = false;
+        break;
+      }
+
+      p = p.parentWidget;
+    }
+
+    if (!visible) {
+      return;
+    }
+
+    this.needsRebuild = false;
+
+    let uidata = saveUIData(this, "brush dynamics");
+
+    this.clear();
+
+    let path = this.getAttribute("datapath");
+    let ch = this.getPathValue(this.ctx, path);
+    let sharedPath = `defaults.channels['${ch.name}']`;
+    let inherit = ch.flag & BrushChannelFlags.INHERIT;
+    let inheritDynamics = ch.flag & BrushChannelFlags.INHERIT_DYNAMICS;
+
+    if (inheritDynamics) {
+      path = sharedPath;
+    }
+
+    for (let dyn of ch.dynamics) {
+      let path2 = `${path}.dynamics['${dyn.name}']`;
+      let row = this.row();
+
+      let panel2 = this.panel(dyn.name);
+      panel2.closed = true;
+
+      panel2.titleframe.useIcons(true);
+      let icon = panel2.titleframe.prop(path2 + ".flag[ENABLED]");
+
+      this.titleframes.push(panel2.titleframe);
+
+      icon._icon = Icons.LARGE_UNCHECKED;
+      icon._icon_pressed = Icons.LARGE_CHECK;
+
+      panel2.curve1d(path2 + ".curve");
+      panel2.prop(path2 + ".factor");
+      panel2.prop(path2 + ".scale");
+      panel2.prop(path2 + ".flag[PERIODIC]");
+      panel2.prop(path2 + ".periodFunc");
+    }
+
+    loadUIData(this, uidata);
+  }
+
+  update() {
+    if (!this.ctx) {
+      return;
+    }
+
+    super.update();
+
+    if (this.needsRebuild) {
+      this.rebuild();
+    }
+  }
+
+  setCSS() {
+    super.setCSS();
+    this.noMarginsOrPadding();
+  }
+}
+UIBase.register(BrushDynamicsWidget);
+
+export class BrushChannelWidget extends Container {
+  constructor() {
+    super();
+
+    this.needsRebuild = true;
+    this._last_update_key = undefined;
+    this.titleframes = [];
+  }
+
+  static define() {
+    return {
+      tagname: "brush-channel-widget-x"
+    }
+  }
+
+  rebuild() {
+    if (haveModal()) {
+      return;
+    }
+
+    let time = util.time_ms();
+
+    console.log("Brush channel widget rebuild");
+    this.needsRebuild = false;
+
+    this.titleframes = [];
+
+    /* Save panel layout, scroll, etc. */
+    let uidata = saveUIData(this, "brush channel widget");
+
+    this.clear();
+
+    let ch = this.getChannel();
+    let path = this.getAttribute("datapath");
+    if (!ch) {
+      return;
+    }
+
+    let sharedPath = `defaults.channels['${ch.name}']`;
+    let inherit = ch.flag & BrushChannelFlags.INHERIT;
+    let inheritDynamics = ch.flag & BrushChannelFlags.INHERIT_DYNAMICS;
+
+    let valuePath = inherit ? sharedPath : path;
+    valuePath += ".value";
+
+    let con = this.row();
+
+    this.noMarginsOrPadding();
+    con.noMarginsOrPadding();
+
+    con.overrideClassDefault("panel", "TitleBackground", "transparent");
+    con.overrideClassDefault("panel", "TitleBorder", "transparent");
+    con.overrideClassDefault("panel", "background-color", "transparent");
+    con.overrideClassDefault("panel", "border-color", "transparent");
+    con.overrideClassDefault("panel", "margin-top", 1);
+    con.overrideClassDefault("panel", "margin-bottom", 1);
+    con.overrideClassDefault("panel", "padding-top", 1);
+    con.overrideClassDefault("panel", "padding-bottom", 1);
+
+    let panel = con.panel("");
+    let row = panel.titleframe;
+
+    this.titleframes.push(row);
+
+    row.overrideClassDefault("numslider", "labelOnTop", false);
+    row.overrideClassDefault("numslider_textbox", "labelOnTop", false);
+    row.overrideClassDefault("numslider_simple", "labelOnTop", false);
+
+    row.useIcons(true);
+    row.prop(path + ".dynamics['pressure'].flag[ENABLED]").iconsheet = 0;
+
+    if (1 || cconst.simpleNumSliders) {
+      row.prop(valuePath);
+    } else {
+      row.slider(valuePath, {
+        packflag: PackFlags.NO_NUMSLIDER_TEXTBOX
+      });
+    }
+
+    panel.iconcheck.remove();
+    panel.titleframe.add(panel.iconcheck);
+
+    row = panel.row();
+    row.useIcons(false);
+    row.prop(`${path}.flag[INHERIT]`);
+    row.prop(`${path}.flag[INHERIT_DYNAMICS]`);
+
+    let dynwidget = UIBase.createElement("brush-channel-dynamics-x");
+    dynwidget.setAttribute("datapath", this.getAttribute("datapath"));
+
+    panel.closed = true;
+    panel.add(dynwidget);
+
+    console.log("time1", (util.time_ms() - time).toFixed(2) + "ms");
+
+    /* Restore old layout */
+    loadUIData(this, uidata);
+
+    for (let titleframe of this.titleframes) {
+      titleframe.flushSetCSS();
+    }
+
+    this.flushSetCSS();
+
+    for (let i = 0; i < 2; i++) {
+      this.flushUpdate();
+
+      for (let titleframe of this.titleframes) {
+        titleframe.flushUpdate(true);
+      }
+    }
+
+    console.log("time2", (util.time_ms() - time).toFixed(2) + "ms");
+  }
+
+  getChannel() {
+    if (!this.ctx) {
+      return undefined;
+    }
+
+    return this.getPathValue(this.ctx, this.getAttribute("datapath"));
+  }
+
+  updateDataPath() {
+    let ch = this.getChannel();
+
+    let key = "";
+
+    if (ch) {
+      key = "" + ch.name + ":" + ch.flag + ":" + cconst.simpleNumSliders;
+    }
+
+    if (key !== this._last_update_key) {
+      this._last_update_key = key;
+      this.needsRebuild = true;
+    }
+  }
+
+  update() {
+    if (!this.ctx) {
+      return;
+    }
+
+    super.update();
+
+    this.updateDataPath();
+
+    if (this.needsRebuild) {
+      this.rebuild();
+    }
+
+    /* Ensure labels are up to date on closed panels */
+    for (let titleframe of this.titleframes) {
+      titleframe.flushUpdate(true);
     }
   }
 }
 
-UIBase.register(ColorBlendPreview);
+UIBase.register(BrushChannelWidget);
