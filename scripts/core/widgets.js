@@ -1306,7 +1306,7 @@ export class BrushChannelWidget extends Container {
     panel.titleframe.add(panel.iconcheck);
 
     row = panel.row();
-    row.useIcons(false);
+    row.useIcons(true);
     row.prop(`${path}.flag[INHERIT]`);
     row.prop(`${path}.flag[INHERIT_DYNAMICS]`);
 

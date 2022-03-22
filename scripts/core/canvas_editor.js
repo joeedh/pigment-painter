@@ -363,12 +363,12 @@ export class CanvasEditor extends simple.Editor {
 
     header.useIcons(true);
 
-    header.prop("brush.channels['color'].color4");
+    header.prop("unified.color.value").noLabel = true;
     header.tool("brush.swap_colors()");
-    header.prop("brush.channels['color2'].color4");
+    header.prop("unified.color2.value").noLabel = true;
 
-    header.prop("brush.channels['radius'].value");
-    header.prop("brush.channels['strength'].value");
+    header.prop("unified.radius.value");
+    header.prop("unified.strength.value");
 
     sidebar.width = 340;
   }
@@ -437,8 +437,15 @@ export class CanvasEditor extends simple.Editor {
     makeBrushProp(tab, "strength");
 
     let crow = tab.row();
-    crow.prop("canvas.brush.color");
-    crow.prop("canvas.brush.color2");
+
+    crow.useIcons(1);
+    crow.prop("unified.color.value").noLabel = true
+    crow.prop("unified.color.flag[INHERIT]");
+
+    crow.tool("brush.swap_colors()");
+
+    crow.prop("unified.color2.value").noLabel = true;
+    crow.prop("unified.color2.flag[INHERIT]");
 
     let cpreview = UIBase.createElement("color-preview-x");
     cpreview.setAttribute("datapath", "canvas.brush");
@@ -446,7 +453,7 @@ export class CanvasEditor extends simple.Editor {
 
     let pal = UIBase.createElement("palette-editor-x");
     pal.setAttribute("datapath", "palettes[0]");
-    pal.setAttribute("colorpath", "canvas.brush.color");
+    pal.setAttribute("colorpath", "unified.color.value");
 
     tab.add(pal);
 

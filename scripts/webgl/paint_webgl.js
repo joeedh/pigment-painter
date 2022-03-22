@@ -276,6 +276,14 @@ export class WebGLPaint extends Canvas {
   }
 
   checkWasmImage() {
+    if (!this.unifiedLut && !this.lutTex) {
+      this.loadLutImage().then(() => {
+        this.checkWasmImage();
+      });
+
+      return;
+    }
+
     if (!this.unifiedLut || this.lutTex) {
       return;
     }

@@ -509,7 +509,7 @@ export class BrushChannel {
 
   static defineAPI(api, st) {
     st.flags("flag", "flag", BrushChannelFlags, "Flags").icons({
-      INHERIT: Icons.AUTOMATIC
+      INHERIT: Icons.PALETTE
     }).uiNames({
       INHERIT         : "Shared",
       INHERIT_DYNAMICS: "Shared Dynamics",
@@ -1483,10 +1483,10 @@ export class SwapColorsOp extends ToolOp {
 
   exec(ctx) {
     let brush = ctx.brush;
-    let tmp = new Vector4(brush.color);
+    let tmp = new Vector4(ctx.unified.color.getValue());
 
-    brush.color.load(brush.color2);
-    brush.color2.load(tmp);
+    ctx.unified.color.setValue(ctx.unified.color2.getValue());
+    ctx.unified.color2.setValue(tmp);
   }
 }
 

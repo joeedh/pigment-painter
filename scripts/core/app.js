@@ -12,7 +12,7 @@ import {Palette, palettes} from './palette.js';
 import {theme} from './theme.js';
 
 import {PlatformAPI} from '../path.ux/scripts/platforms/platform_base.js';
-import {Canvas, Brush, getSearchOffs, BrushTools, BrushChannelSet} from './canvas.js';
+import {Canvas, Brush, getSearchOffs, BrushTools, BrushChannelSet, BrushChannelFlags, BrushChannel} from './canvas.js';
 import {CanvasEditor} from './canvas_editor.js';
 import {Icons} from './icon_enum.js';
 import {init_webgl} from '../webgl/webgl.js';
@@ -25,6 +25,8 @@ import {BrushCommandStack} from '../webgl/brush_webgl.js';
 import {presetManager, startPresets} from './presets.js';
 import {SolverSettings} from './optimize.js';
 import {WebGLGraph} from '../layers/layers.js';
+
+const appLocalStorage = {}; //localStorage;
 
 export class AppSettings extends simple.DataModel {
   constructor() {
@@ -67,6 +69,7 @@ export class AppSettings extends simple.DataModel {
     this.channels.ensureTemplate(BrushChannelSet.defaultTemplate());
   }
 }
+
 AppSettings.STRUCT = `
 AppSettings {
   solverSettings   : SolverSettings;
@@ -76,9 +79,114 @@ AppSettings {
 `;
 simple.DataModel.register(AppSettings);
 
+export class UnifiedChannels {
+  constructor(ctx) {
+    this.ctx = ctx;
+  }
+
+  getChannel(key) {
+    let ch = this.ctx.brush.channels.get(key);
+    let ch2 = this.ctx.defaults.get(key);
+
+    if (ch.flag & BrushChannelFlags.INHERIT) {
+      return ch2;
+    }
+
+    return ch;
+  }
+
+  getBaseChannel(key) {
+    return this.ctx.brush.channels.get(key);
+  }
+
+  static defineAPI(api, st) {
+    let templ = BrushChannelSet.defaultTemplate();
+    let brush = new Brush();
+
+    for (let key in templ) {
+      let val = templ[key];
+      let def;
+
+      if (typeof val !== "object" || (val instanceof Vector3 || val instanceof Vector4 || val instanceof Vector2)) {
+        val = {value : val};
+      }
+
+      class dummy {};
+
+      if (api.mapStruct(BrushChannel).members.length === 0) {
+        let bst = api.mapStruct(BrushChannel);
+        BrushChannel.defineAPI(api, bst);
+      }
+
+      let st2 = api.inheritStruct(dummy, BrushChannel);
+      st2.remove(st2.pathmap.value);
+
+      st2.pathmap.flag.customGetSet(function() {
+        return this.ctx.unified.getBaseChannel(this.dataref.name).flag;
+      }, function(v) {
+        this.ctx.unified.getBaseChannel(this.dataref.name).flag = v;
+      });
+
+      let uiname = templ.uiName || ToolProperty.makeUIName(key);
+      let descr = templ.description || "";
+
+      if (val.value instanceof Vector3) {
+        def = st2.color3("value", "value", uiname, descr);
+      } else if (val.value instanceof Vector4) {
+        def = st2.color3("value", "value", uiname, descr);
+      } else {
+        def = st2.float("value", "value", uiname, descr);
+      }
+
+      let ch = brush.channels.get(key);
+
+      let subtype = def.data.subtype;
+
+      ch.prop.copyTo(def.data);
+      def.data.subtype = subtype;
+      def.data.uiname = uiname;
+
+      function getter() {
+        return this.dataref.getValue();
+      }
+
+      function setter(v) {
+        this.dataref.setValue(v);
+      }
+
+      def.customGetSet(getter, setter);
+
+      st.struct(key, key, uiname, st2);
+    }
+  }
+}
+UnifiedChannels.STRUCT = `
+UnifiedChannels {
+}
+`;
+simple.DataModel.register(UnifiedChannels);
+
+function defineProp(key) {
+  Object.defineProperty(UnifiedChannels.prototype, key, {
+    get() {
+      return this.getChannel(key);
+    }
+  })
+}
+
+for (let key in BrushChannelSet.defaultTemplate()) {
+  defineProp(key);
+}
+
 export class Context {
   get canvas() {
     return window._appstate.canvas;
+  }
+
+  get unified() {
+    let unified = this.state.unified;
+    unified.ctx = this;
+    return unified;
   }
 
   get defaults() {
@@ -133,6 +241,8 @@ export class Context {
     strct.struct("colorTriplets", "colorTriplets", "Color Triplets", api.mapStruct(ColorTripletSet));
     strct.struct("brushstack", "brushstack", "Brush Stack", api.mapStruct(BrushCommandStack));
 
+    strct.struct("unified", "unified", "Unified", api.mapStruct(UnifiedChannels));
+
     strct.struct("pigments", "pigments", "Pigments", api.mapStruct(PigmentSet));
 
     strct.list("palettes", "palettes", {
@@ -172,6 +282,8 @@ const LOCAL_STORAGE_SETTINGS_KEY = "_pigment_paint_settings";
 export class AppState extends simple.AppState {
   constructor() {
     super(Context);
+
+    this.unified = new UnifiedChannels(this.ctx);
 
     this.fileVersion = [0, 0, 2];
     this.settings = new AppSettings();
@@ -222,11 +334,11 @@ export class AppState extends simple.AppState {
       schema         : nstructjs.write_scripts()
     };
 
-    localStorage[LOCAL_STORAGE_SETTINGS_KEY] = JSON.stringify(json);
+    appLocalStorage[LOCAL_STORAGE_SETTINGS_KEY] = JSON.stringify(json);
   }
 
   loadSettingsIntern() {
-    let json = JSON.parse(localStorage[LOCAL_STORAGE_SETTINGS_KEY]);
+    let json = JSON.parse(appLocalStorage[LOCAL_STORAGE_SETTINGS_KEY]);
 
     let istruct = new nstructjs.STRUCT();
     istruct.parse_structs(json.schema);
@@ -235,7 +347,7 @@ export class AppState extends simple.AppState {
   }
 
   loadSettings() {
-    if (!(LOCAL_STORAGE_SETTINGS_KEY in localStorage)) {
+    if (!(LOCAL_STORAGE_SETTINGS_KEY in appLocalStorage)) {
       return;
     }
 
@@ -305,7 +417,7 @@ export class AppState extends simple.AppState {
 
     this.saveFile({useJSON: true}).then(data => {
       data = JSON.stringify(data);
-      localStorage[LOCAL_STORAGE_KEY] = data;
+      appLocalStorage[LOCAL_STORAGE_KEY] = data;
 
       console.log("saved localstorage data:", (data.length/1024.0).toFixed(2) + "kb");
     });
@@ -445,8 +557,8 @@ export class AppState extends simple.AppState {
       this.canvas.init(this.gl);
     }
 
-    if (LOCAL_STORAGE_KEY in localStorage) {
-      let data = localStorage[LOCAL_STORAGE_KEY];
+    if (LOCAL_STORAGE_KEY in appLocalStorage) {
+      let data = appLocalStorage[LOCAL_STORAGE_KEY];
 
       try {
         this.loadFile(data, {useJSON: true}).catch(error => {

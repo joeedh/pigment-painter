@@ -60,9 +60,9 @@ let huerets = util.cachering.fromConstructor(Vector4, 64);
 
 
 export class DotSample {
-  constructor(x, y, dx, dy, t, pressure, radius=0.0,
-              spacing=0.0, strength=0.0, angle_degrees=0.0, squish=0.0,
-              soft=0.0, alphaLighting=0.0, followAngle=0.0, hue=0.0) {
+  constructor(x, y, dx, dy, t, pressure, radius                          = 0.0,
+              spacing = 0.0, strength = 0.0, angle_degrees = 0.0, squish = 0.0,
+              soft                                                       = 0.0, alphaLighting = 0.0, followAngle = 0.0, hue    = 0.0) {
     this.x = x;
     this.y = y;
     this.dx = dx;
@@ -266,7 +266,7 @@ export class Canvas {
     if (this.slots.length <= this.activeBrush) {
       let tot = this.activeBrush - this.slots.length + 1;
 
-      for (let i=0; i<tot; i++) {
+      for (let i = 0; i < tot; i++) {
         this.slots.push(new PresetRef());
       }
     }
@@ -337,7 +337,7 @@ export class Canvas {
     if (this.slots.length <= slot) {
       this.slots.length = slot + 1;
 
-      for (let i=0; i<this.slots.length; i++) {
+      for (let i = 0; i < this.slots.length; i++) {
         if (this.slots[i] === undefined) {
           this.slots[i] = new PresetRef("brush");
         }
@@ -979,22 +979,24 @@ export class Canvas {
     }
   }
 
-  loadLutImage() {
-    getLUTImage().then((res) => {
-      console.log("RES", res);
+  async loadLutImage() {
+    let res = await getLUTImage();
 
-      if (wasmReady()) {
-        let dimen = res.dimen;
+    console.log("RES", res);
 
-        this.unifiedLut = makeSharedImageData(res.image.width, res.image.height, ImageSlots.LUT, dimen, this.lutIsLinear);
-        this.unifiedLut.data.set(res.image.data);
-      } else {
-        this.unifiedLut = res.image;
-      }
+    if (wasmReady()) {
+      let dimen = res.dimen;
 
-      console.log("loaded image lookup data", res);
-      this.pigments.loadLUTImage(res.image, res.dimen);
-    });
+      this.unifiedLut = makeSharedImageData(res.image.width, res.image.height, ImageSlots.LUT, dimen, this.lutIsLinear);
+      this.unifiedLut.data.set(res.image.data);
+    } else {
+      this.unifiedLut = res.image;
+    }
+
+    console.log("loaded image lookup data", res);
+    this.pigments.loadLUTImage(res.image, res.dimen);
+
+    return res;
   }
 
   loadSTRUCT(reader) {
