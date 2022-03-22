@@ -1,3 +1,5 @@
+[Demo](https://joeedh.github.io/pigment-painter/)
+
 Implementation of "Mixbox: Practical Pigment Mixing for Digital Painting"
 See https://github.com/scrtwpns/pigment-mixing
 
