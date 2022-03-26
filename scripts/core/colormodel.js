@@ -7,7 +7,7 @@ import {Camera} from '../webgl/webgl.js';
 export const WIDE_GAMUT = true;
 
 export const USE_LUT_IMAGE = true;
-export const LINEAR_LUT = false;
+export const LINEAR_LUT = 0;
 export const WEBGL_PAINTER = true;
 
 export const TRILINEAR_LUT = false;
@@ -313,6 +313,8 @@ export const KA = 0, KDA = 1, KFREQ = 2, KTMP = 3, KTOT = 4;
 
 export class Pigment {
   constructor() {
+    this.pigment_data = pigment_data;
+
     this.useWavelets = false;
     this.pigmentSet = undefined;
     this.updateGen = 0;
@@ -555,6 +557,92 @@ export class Pigment {
     return ret;
   }
 
+  static mixRGB_YUV(pigments, colors, ws, dither = false, bilinear, errorCorrect=true) {
+    let ret = mixRGBRets.next();
+    ret[0] = ret[1] = ret[2] = 0.0;
+
+    let alpha = 0.0;
+
+    let err = mixRGBRets.next().zero();
+
+    for (let i = 0; i < colors.length; i++) {
+      let c = colors[i];
+      let yuv = color.rgb_to_yuv2(c[0], c[1], c[2], true);
+
+      if (errorCorrect) {
+        let rgb = color.yuv_to_rgb2(yuv[0], yuv[1], yuv[2]);
+
+        err[0] += (c[0] - rgb[0])*ws[i];
+        err[1] += (c[1] - rgb[1])*ws[i];
+        err[2] += (c[2] - rgb[2])*ws[i];
+      }
+
+      ret.addFac(yuv, ws[i]);
+      alpha += c[3]*ws[i];
+    }
+
+    ret.load(color.yuv_to_rgb2(ret[0], ret[1], ret[2], true));
+    ret[3] = alpha;
+
+    if (errorCorrect) {
+      ret[0] += err[0];
+      ret[1] += err[1];
+      ret[2] += err[2];
+    }
+
+    if (dither) {
+      ret[0] += (Math.random() - 0.5)/255.0;
+      ret[1] += (Math.random() - 0.5)/255.0;
+      ret[2] += (Math.random() - 0.5)/255.0;
+      ret[3] += (Math.random() - 0.5)/255.0;
+    }
+
+    return ret;
+  }
+
+  static mixRGB_Test(pigments, colors, ws, dither = false, bilinear, errorCorrect=true) {
+    let ret = mixRGBRets.next();
+    ret[0] = ret[1] = ret[2] = 0.0;
+
+    let alpha = 0.0;
+
+    let err = mixRGBRets.next().zero();
+
+    for (let i = 0; i < colors.length; i++) {
+      let c = colors[i];
+      let yuv = color.rgb_to_test(c[0], c[1], c[2], true);
+
+      if (errorCorrect) {
+        let rgb = color.test_to_rgb(yuv[0], yuv[1], yuv[2]);
+
+        err[0] += (c[0] - rgb[0])*ws[i];
+        err[1] += (c[1] - rgb[1])*ws[i];
+        err[2] += (c[2] - rgb[2])*ws[i];
+      }
+
+      ret.addFac(yuv, ws[i]);
+      alpha += c[3]*ws[i];
+    }
+
+    ret.load(color.test_to_rgb(ret[0], ret[1], ret[2], true));
+    ret[3] = alpha;
+
+    if (errorCorrect) {
+      ret[0] += err[0];
+      ret[1] += err[1];
+      ret[2] += err[2];
+    }
+
+    if (dither) {
+      ret[0] += (Math.random() - 0.5)/255.0;
+      ret[1] += (Math.random() - 0.5)/255.0;
+      ret[2] += (Math.random() - 0.5)/255.0;
+      ret[3] += (Math.random() - 0.5)/255.0;
+    }
+
+    return ret;
+  }
+
   static mixRGB_HSV(pigments, colors, ws, dither = false) {
     let ret = mixRGBRets.next();
     ret[0] = ret[1] = ret[2] = 0.0;
@@ -717,9 +805,7 @@ export class Pigment {
 
     ret[3] = 0.0;
 
-    //if (WIDE_GAMUT) {
     ret.mulScalar(COLOR_SCALE*pigments.colorScale);
-    //}
 
     if (!LINEAR_LUT) {
       ret.load(color.linear_to_rgb(ret[0], ret[1], ret[2]));
@@ -792,19 +878,17 @@ export class Pigment {
     ret.solveFac = this.solveFac;
     ret.errorLimit = this.errorLimit;
     ret.randfac = this.randfac;
+
+    ret.name = this.name;
+
     ret.useHermite = this.useHermite;
     ret.origHermite = this.origHermite;
 
     for (let list of [this.s_hermite, this.k_hermite]) {
-      let list2 = [];
-
-      for (let w of list) {
-        list2.push(w.copy());
-      }
-
-      lists.push(list2);
+      lists.push(util.list(list));
     }
 
+    ret.pigment_data = this.pigment_data;
     ret.pigment = this.pigment;
 
     return ret;
@@ -830,6 +914,8 @@ export class Pigment {
   resetHermite(ws) {
     ws.length = 0;
     ws.range = [1e17, -1e17];
+
+    let pigment_data = this.pigment_data;
 
     let pdata = pigment_data.pigmentKS[this.pigment];
     let ks = ws === this.k_hermite ? pdata.K : pdata.S;
@@ -931,6 +1017,8 @@ export class Pigment {
   }
 
   evalHermite(ws, freq) {
+    let pigment_data = this.pigment_data;
+
     if (ws.length === 0) {
       this.resetHermite(ws);
     }
@@ -999,6 +1087,8 @@ export class Pigment {
   };
 
   optimizeHermite(ws, errorLimit = 0.05) {
+    let pigment_data = this.pigment_data;
+
     console.log("Optimize!");
 
     let mean = 0.0, tot = 0.0, vari = 0;
@@ -1199,6 +1289,8 @@ export class Pigment {
   }
 
   integrate(ws, freq, useHermite = this.useHermite) {
+    let pigment_data = this.pigment_data;
+
     if (useHermite) {
       let f = this.intHermite(ws, freq);
 
@@ -1224,6 +1316,8 @@ export class Pigment {
   }
 
   evaluate(ws, freq, useHermite = this.useHermite, origHermite = this.origHermite) {
+    let pigment_data = this.pigment_data;
+
     if (useHermite) {
       if (origHermite && !insideSolver) {
         for (let h of pigment_data.pigmentHermite) {
@@ -1249,13 +1343,13 @@ export class Pigment {
     freq = Math.min(Math.max(freq, 38), 75);
     freq -= 38;
 
-    let pdata = pigment_data.pigmentKS[this.pigment];
+    let pdata = this.pigment_data.pigmentKS[this.pigment];
 
     let i1 = ~~freq;
     let t = Math.fract(freq);
 
-    if (i1 >= pigment_data.wavelengths.length - 1) {
-      i1 = pigment_data.wavelengths.length - 1;
+    if (i1 >= this.pigment_data.wavelengths.length - 1) {
+      i1 = this.pigment_data.wavelengths.length - 1;
       return ws === this.k_hermite ? pdata.K[i1] : pdata.S[i1];
     } else {
       let a = ws === this.k_hermite ? pdata.K[i1] : pdata.S[i1];
@@ -1351,6 +1445,8 @@ export class PigmentSet extends Array {
     this.lutQuality = 3.0;
     this.upscaleGoal = 128;
 
+    this.updateGen = 0;
+
     this.useCustomKs = false;
     this.k1 = REFL_K1;
     this.k2 = REFL_K2;
@@ -1426,7 +1522,7 @@ export class PigmentSet extends Array {
 
         if (!p.wasm || p.pigment !== p.wasm.pigment) {
           let scale = this.colorScale ?? 1.0;
-          p.wasm = WasmPigment.get(pigment_data, p.pigment, this.k1 ?? 0.03, this.k2 ?? 0.65, scale);
+          p.wasm = WasmPigment.get(p.pigment_data, p.pigment, this.k1 ?? 0.03, this.k2 ?? 0.65, scale);
         }
       }
 
@@ -1457,15 +1553,19 @@ export class PigmentSet extends Array {
     }
   }
 
+  copyTo(b) {
+    b.blurFilledInPixels = this.blurFilledInPixels;
+    b.blurRadius = this.blurRadius;
+    b.optimizeFilledIn = this.optimizeFilledIn;
+    b.colorScale = this.colorScale;
+    b.blurAll = this.blurAll;
+    b.doFillInLut = this.doFillInLut;
+  }
+
   copy() {
     let ret = new PigmentSet();
 
-    ret.blurFilledInPixels = this.blurFilledInPixels;
-    ret.blurRadius = this.blurRadius;
-    ret.optimizeFilledIn = this.optimizeFilledIn;
-    ret.colorScale = this.colorScale;
-    ret.blurAll = this.blurAll;
-    ret.doFillInLut = this.doFillInLut;
+    this.copyTo(ret);
 
     for (let item of this) {
       ret.push(item.copy());
@@ -2625,6 +2725,9 @@ export class PigmentSet extends Array {
     let tot = 0;
 
     let used = new Uint16Array(dimen*dimen*dimen);
+    let pdimen = Math.max(dimen>>1, 8);
+    let pdf = new Float32Array(pdimen*pdimen*pdimen);
+    pdf.fill(0);
 
     let time = util.time_ms();
     let ws = new Vector4();
@@ -2655,11 +2758,16 @@ export class PigmentSet extends Array {
         rgb[i] = Math.min(Math.max(rgb[i], 0.0), 1.0)*0.99999;
       }
 
-      let ir = ~~(rgb[0]*dimen);
-      let ig = ~~(rgb[1]*dimen);
-      let ib = ~~(rgb[2]*dimen);
+      let ir = ~~(rgb[0]*(dimen-1));
+      let ig = ~~(rgb[1]*(dimen-1));
+      let ib = ~~(rgb[2]*(dimen-1));
 
       let idx = (ib*dimen*dimen + ig*dimen + ir)*4;
+
+      let pir = ~~(rgb[0]*(pdimen-1));
+      let pig = ~~(rgb[1]*(pdimen-1));
+      let pib = ~~(rgb[2]*(pdimen-1));
+      let pidx = pib*pdimen*pdimen + pig*pdimen + pir;
 
       if (used[idx/4] === 0) {
         hitrate++;
@@ -2667,6 +2775,7 @@ export class PigmentSet extends Array {
         hitrate = 0;
       }
 
+      pdf[pidx]++;
       used[idx/4]++;
 
       lut[idx] += ws[0];
@@ -2705,6 +2814,18 @@ export class PigmentSet extends Array {
         m *= mul;
         y *= mul;
         k *= mul;
+      }
+
+      let pir = ~~(rgb[0]*(pdimen-1))
+      let pig = ~~(rgb[1]*(pdimen-1))
+      let pib = ~~(rgb[2]*(pdimen-1))
+
+      let pidx = pib*pdimen*pdimen + pig*pdimen + pir;
+      let prob = 1.0 / (1.0 + pdf[pidx]**0.5);
+
+      if (Math.random() > prob) {
+        step--;
+        continue;
       }
 
       dopixel(c, m, y, k);

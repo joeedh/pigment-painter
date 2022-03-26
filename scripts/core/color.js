@@ -298,7 +298,7 @@ export function p65rgb_to_xyz(r, g, b) {
 
   let x = r*0.4866 + g*0.2657 + b*0.1982;
   let y = r*0.2290 + g*0.6917 + b*0.0793;
-  let z = r*-0.0000 + g*0.0451 + b*1.0439;
+  let z = r* -0.0000 + g*0.0451 + b*1.0439;
 
   let ret = p65rgb_to_xyz_rets.next();
   ret[0] = x;
@@ -309,9 +309,9 @@ export function p65rgb_to_xyz(r, g, b) {
 }
 
 export function xyz_to_p65rgb(x, y, z) {
-  let r = x*2.4935 + y*-0.9314 + z*-0.4027;
-  let g = x*-0.8295 + y*1.7627 + z*0.0236;
-  let b = x*0.0358 + y*-0.0762 + z*0.9569;
+  let r = x*2.4935 + y* -0.9314 + z* -0.4027;
+  let g = x* -0.8295 + y*1.7627 + z*0.0236;
+  let b = x*0.0358 + y* -0.0762 + z*0.9569;
 
   r = srgb_linear_to_gamma(r);
   g = srgb_linear_to_gamma(g);
@@ -325,7 +325,7 @@ export function xyz_to_p65rgb(x, y, z) {
   return ret;
 }
 
-export function xyz_to_rgb(X, Y, Z, noGamma=false) {
+export function xyz_to_rgb(X, Y, Z, noGamma = false) {
 
   let var_X = X;       //X from 0 to  95.047      (Observer = 2°, Illuminant = D65)
   let var_Y = Y;      //Y from 0 to 100.000
@@ -788,4 +788,150 @@ export function rgb_to_saturation(r, g, b) {
   let db = Math.abs(b - avg);
 
   return (dr + dg + db)/3.0;
+}
+
+let yuvmat_to = new Matrix4([
+  0.299, 0.587, 0.114, 0.0,
+  -0.1471, -0.288, 0.436, 0.0,
+  0.615, -0.51499, -1.0001, 0.0,
+  0.0, 0.0, 0.0, 0.0
+]);
+yuvmat_to.transpose();
+
+let yuvmat_from = new Matrix4([
+  1.0, 0.0, 1.13983, 0.0,
+  1.0, -0.39465, -0.58060, 0.0,
+  1.0, 2.03211, 0.0, 0.0,
+  0.0, 0.0, 0.0, 0.0,
+]);
+
+yuvmat_from.transpose();
+
+let rgb_to_yuv_rets = util.cachering.fromConstructor(Vector3, 128);
+
+export function rgb_to_yuv(r, g, b, doLinear = true) {
+  let c = rgb_to_yuv_rets.next().loadXYZ(r, g, b);
+
+  if (doLinear) {
+    c.load(rgb_to_linear(c[0], c[1], c[2]));
+  }
+
+  c.multVecMatrix(yuvmat_to);
+
+  return c;
+}
+
+let yuv_to_rgb_rets = util.cachering.fromConstructor(Vector3, 128);
+
+export function yuv_to_rgb(y, u, v, doLinear = true) {
+  let c = yuv_to_rgb_rets.next().loadXYZ(y, u, v);
+
+  c.multVecMatrix(yuvmat_from);
+
+  if (doLinear) {
+    c.load(linear_to_rgb(c[0], c[1], c[2]));
+  }
+
+  return c;
+}
+
+const wr = 0.299, wb = 0.114, wg = 1.0 - wr - wb;
+const lpow = 2.0;
+const lk = 5.0;
+
+function yuvf(f) {
+  return 1.0 - Math.exp(-lk*5.0);
+}
+
+function iyuvf(f) {
+  return Math.log(-1 / (f - 1.0)) / lk;
+}
+
+export function rgb_to_yuv2(r, g, b, doLinear = true) {
+  let c = rgb_to_yuv_rets.next().loadXYZ(r, g, b);
+
+  if (doLinear) {
+    //c.load(rgb_to_linear(c[0], c[1], c[2]));
+  }
+
+  let l = c[0]*wr + c[1]*wg + c[2]*wb;
+
+  let ret = rgb_to_yuv_rets.next();
+
+  ret[0] = l;
+  ret[1] = (c[2] - l) / (1.0 - wb);
+  ret[2] = (c[0] - l) / (1.0 - wr);
+
+  ret[1] = ret[1]*0.5 + 0.5;
+  ret[2] = ret[2]*0.5 + 0.5;
+
+  ret[0] = Math.pow(ret[0], window.DD5 ?? 1.0);
+  ret[1] = Math.pow(Math.abs(ret[1]), window.DD6 ?? 1.0)*Math.sign(ret[1]);
+  ret[2] = Math.pow(Math.abs(ret[2]), window.DD7 ?? 1.0)*Math.sign(ret[2]);
+
+  return ret;
+}
+
+export function yuv_to_rgb2(y, u, v, doLinear = true) {
+  let c = yuv_to_rgb_rets.next().loadXYZ(y, u, v);
+
+  let ret = yuv_to_rgb_rets.next();
+
+  //y = Math.pow(y, 1.0/lpow);
+
+  y = Math.pow(y, 1.0/(window.DD5 ?? 1.0));
+  u = Math.pow(Math.abs(u), 1.0/(window.DD6 ?? 1.0))*Math.sign(u);
+  v = Math.pow(Math.abs(v), 1.0/(window.DD7 ?? 1.0))*Math.sign(v);
+
+  u = u*2.0 - 1.0;
+  v = v*2.0 - 1.0;
+
+  ret[0] = v * (1.0 - wr) + y;
+  ret[2] = u * (1.0 - wb) + y;
+  ret[1] = y - u*wb*(1.0 - wb)/wg - v*wr*(1.0 - wr)/wg;
+
+  if (doLinear) {
+    //ret.load(linear_to_rgb(ret[0], ret[1], ret[2]));
+  }
+
+  return ret;
+}
+
+window.setYUVParams = function(a=2, b=a, c=b) {
+  window.DD5 = a;
+  window.DD6 = b;
+  window.DD7 = c;
+
+  _appstate.ctx.pigments.updateGen++;
+}
+
+let rgb_to_test_rets = util.cachering.fromConstructor(Vector3, 64);
+
+export function rgb_to_test(r, g, b, doLinear=true) {
+  let c = rgb_to_test_rets.next().loadXYZ(r, g, b);
+
+  if (doLinear) {
+    c.load(rgb_to_linear(c[0], c[1], c[2]));
+  }
+
+  c.mulScalar(0.5);
+  c.mul(c);
+
+  return c;
+}
+
+export function test_to_rgb(r, g, b, doLinear=true) {
+  let c = rgb_to_test_rets.next().loadXYZ(r, g, b);
+
+  for (let i=0; i<3; i++) {
+    c[i] = Math.sqrt(Math.abs(c[i]))*Math.sign(c[i]);
+  }
+
+  //c.mulScalar(2.0);
+
+  if (doLinear) {
+    c.load(linear_to_rgb(c[0], c[1], c[2]));
+  }
+
+  return c;
 }

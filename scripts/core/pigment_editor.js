@@ -185,7 +185,13 @@ export class PigmentEditor extends Container {
     g.beginPath();
     let colors = ["red", "green", "black"];
 
-    let rgb = pigment.toRGB();
+    let pigments = this.ctx.pigments;
+    let idx = pigments.indexOf(pigment);
+    let ws = new Vector4();
+
+    ws[idx] = 1.0;
+
+    let rgb = Pigment.toRGB(pigments, ws);
 
     this.rgbLabel[0].text = "r:" + rgb[0].toFixed(5);
     this.rgbLabel[1].text = "g:" + rgb[1].toFixed(5);

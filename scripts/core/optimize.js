@@ -2,16 +2,19 @@ import {
   util, nstructjs, Vector2, Vector3,
   Vector4, Matrix4, Quat, math, keymap, simple
 } from '../path.ux/scripts/pathux.js';
-import {KTOT, Pigment, pigment_data, setInsideSolver, START_REFL_K1, START_REFL_K2, WIDE_GAMUT} from './colormodel.js';
+import {KTOT, Pigment, pigment_data, PigmentSet, setInsideSolver, START_REFL_K1, START_REFL_K2} from './colormodel.js';
 
 import '../util/numeric.js';
 
+import * as pigment_data_orig from './pigment_data_original.js';
 
 export const SolverFlags = {
-  NEWTON   : 1,
-  ANNEALING: 2,
-  HIGH_PASS: 4,
-  STRETCH  : 8,
+  NEWTON     : 1,
+  ANNEALING  : 2,
+  HIGH_PASS  : 4,
+  STRETCH    : 8,
+  WIDE_GAMUT : 16,
+  FIXED_PATHS: 32,
 }
 
 export class SolverSettings {
@@ -26,7 +29,11 @@ export class SolverSettings {
   }
 
   static defineAPI(api, st) {
-    st.flags("flag", "flag", SolverFlags, "Solver Flags");
+    st.flags("flag", "flag", SolverFlags, "Solver Flags").descriptions({
+      STRETCH   : "Try to stretch gamut to cover more of rgb space",
+      WIDE_GAMUT: "More aggresive version of stretch"
+    });
+
     st.float("randFac", "randFac", "Random")
       .noUnits()
       .range(0.0, 5.0);
@@ -124,8 +131,6 @@ window.fftTables = function (scale = 0.01) {
 let kstemps = util.cachering.fromConstructor(Vector4, 64);
 let cstemps = util.cachering.fromConstructor(Vector3, 64);
 
-const MAXIMIZE_GAMUT = WIDE_GAMUT;
-
 window.GRAD_FAC = 1.0;
 
 window.DECAY = 1.0;
@@ -155,6 +160,8 @@ function doprint(idx) {
   }
 }
 
+let origPigments = undefined;
+
 export class Optimizer {
   constructor(pigments, settings) {
     this.pigments = pigments;
@@ -163,11 +170,40 @@ export class Optimizer {
     this.rand2 = new util.MersenneRandom();
     this.stepi = 0;
 
+    this.wideGamut = settings.flag & SolverFlags.WIDE_GAMUT;
+
     this.startseed = Math.random();
 
     this.settings = settings;
     this.cdimen = 8;
     this.cube = new Int8Array(this.cdimen**3);
+
+    this.origPigments = new PigmentSet();
+    this.origPigments.copyTo(this.origPigments);
+    this.origPigments.length = 0;
+
+    this.origPigments.checkWasm();
+    this.origPigments.pigment_data = pigment_data_orig;
+
+    for (let p of pigments) {
+      let p2 = p.copy();
+
+      p2.pigment_data = pigment_data_orig;
+      p2.wasm = undefined;
+
+      this.origPigments.push(p2);
+    }
+
+    if (0&&origPigments) {
+      for (let i=0; i<origPigments.length; i++) {
+        if (this.origPigments[i].pigment === origPigments[i].pigment) {
+          this.origPigments[i].wasm = origPigments[i].wasm;
+        }
+      }
+    } else {
+      origPigments = this.origPigments;
+      origPigments.checkWasm();
+    }
   }
 
   start() {
@@ -316,14 +352,64 @@ export class Optimizer {
     }
 
     if (optMode) {
-      if (!MAXIMIZE_GAMUT) {
+      if (!this.wideGamut) {
         err *= 1.0 + 0.15*(1.0 - totcube)**2
       } else {
         err += 2.0*(1.0 - totcube)**2;
       }
     }
 
+    if (this.settings.flag & SolverFlags.FIXED_PATHS) {
+      err += this.origPathError([0, 0, 1, 0], [1, 0, 0, 0]);
+      err += this.origPathError([0, 1, 0, 0], [1, 0, 0, 0]);
+
+      err += this.origPathError([1, 0, 0, 0], [0, 1, 0, 0]);
+      err += this.origPathError([0, 0, 1, 0], [0, 1, 0, 0]);
+
+      err += this.origPathError([1, 0, 0, 0], [0, 0, 1, 0]);
+      err += this.origPathError([0, 1, 0, 0], [0, 0, 1, 0]);
+    }
+
     return err;
+  }
+
+  origPathError(ws1, ws2) {
+    ws1 = new Vector4(ws1);
+    ws2 = new Vector4(ws2);
+    let ws = new Vector4();
+
+    let err = 0.0;
+    let steps = 8;
+    let t = 0.0, dt = 1.0 / (steps - 1);
+
+    for (let i=0; i<steps; i++, t += dt) {
+      ws.load(ws1).interp(ws2, t);
+
+      let sum = ws[0] + ws[1] + ws[2] + ws[3];
+      sum = sum > 0.0 ? 1.0 / sum : sum;
+      ws.mulScalar(sum);
+
+      let c1 = Pigment.toRGB(this.pigments, ws);
+      let c2 = Pigment.toRGB(this.origPigments, ws);
+
+      let bad = false;
+
+      for (let j=0; j<3; j++) {
+        if (c2[j] < 0 || c2[j] >= 1.0) {
+          bad = true;
+          break;
+        }
+      }
+
+      if (bad) {
+        continue;
+      }
+
+      c2.sub(c1);
+      err += c2.dot(c2)*dt;
+    }
+
+    return err*5.0;
   }
 
   gradientDescent(points) {
@@ -331,18 +417,18 @@ export class Optimizer {
 
     let origs;
 
-    if (MAXIMIZE_GAMUT) {
+    if (this.wideGamut) {
       origs = this.saveOrig(ps);
     }
 
-    let df = MAXIMIZE_GAMUT ? 0.001 : 0.0001;
+    let df = this.wideGamut ? 0.001 : 0.0001;
     let oneDf = 1.0/df;
 
     let gs = [];
     let r1 = this.error(points);
     let totg = 0.0;
 
-    let gk = MAXIMIZE_GAMUT ? 0.2 : 1.0;
+    let gk = this.wideGamut ? 0.2 : 1.0;
     gk *= window.GRAD_FAC ?? 1.0;
     gk *= this.settings.newtonStep;
 
@@ -379,7 +465,7 @@ export class Optimizer {
 
     let scale_g;
 
-    const SOLVE_COLOR_SCALE = false; //MAXIMIZE_GAMUT;
+    const SOLVE_COLOR_SCALE = false; //this.wideGamut;
 
     if (SOLVE_COLOR_SCALE) {
       let orig = ps.colorScale;
@@ -412,7 +498,7 @@ export class Optimizer {
       }
     }
 
-    if (MAXIMIZE_GAMUT && r1 < this.error(points)) {
+    if (this.wideGamut && r1 < this.error(points)) {
       this.loadOrig(ps, origs);
     }
 
@@ -477,7 +563,7 @@ export class Optimizer {
 
     let r1 = this.error(points);
 
-    let decay = MAXIMIZE_GAMUT ? 0.005 : 0.005;
+    let decay = this.wideGamut ? 0.005 : 0.005;
 
     decay *= window.DECAY;
 
@@ -559,6 +645,8 @@ export class Optimizer {
     let rate = this.settings.pointSubSteps;
     //rate *= 8;
 
+    this.wideGamut = this.settings.flag & SolverFlags.WIDE_GAMUT;
+
     let ps = this.pigments;
     ps.updateWasm();
 
@@ -590,7 +678,7 @@ export class Optimizer {
       this.highPassFilter(err);
     }
 
-    if (MAXIMIZE_GAMUT) {
+    if (this.wideGamut) {
       doprint(2, `error: ${err.toFixed(4)} [${this.stepi%rate}]`, "COLOR_SCALE:", ps.colorScale.toFixed(3));
     } else {
       doprint(2, `error: ${err.toFixed(4)} [${this.stepi%rate}]`);

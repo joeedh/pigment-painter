@@ -795,6 +795,541 @@ export const EraseBase = {
                       "alphaLighting", "color", "angle", "squish", "soft", "random", "alphaLightingMul", "param1",
                       "param2", "param3", "param4", "color2"]
 };
+
+export const SeamDraw = {
+  "name"           : "Seam Draw", "json": {
+    "sourcePreset": "Seam Draw", "name": "Seam Draw", "channels": {
+      "0"    : {
+        "prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 2, "slideSpeed": 2}, "dynamics": {
+          "mappings": {
+            "0"        : {"flag": 0}, "6": {
+              "curve"  : {
+                "generators": {
+                  "0"   : {
+                    "points": {
+                      "0"   : {"eid": 7},
+                      "1"   : {"0": 0.32813, "1": 0.01719, "eid": 12, "flag": 1, "rco": {"0": 0.32813, "1": 0.01719}},
+                      "2"   : {
+                        "0"  : 0.37188, "1": 0.02969, "eid": 11, "flag": 0, "tangent": 1,
+                        "rco": {"0": 0.37188, "1": 0.02969}
+                      }, "3": {
+                        "0"  : 0.5375, "1": 0.97656, "eid": 10, "flag": 0, "tangent": 1,
+                        "rco": {"0": 0.5375, "1": 0.97656}
+                      }, "4": {
+                        "0"  : 0.54375, "1": 0.95156, "eid": 9, "flag": 1, "tangent": 1,
+                        "rco": {"0": 0.54375, "1": 0.95156}
+                      }, "5": {
+                        "0": 0.575, "1": 0.96172, "eid": 13, "flag": 1, "tangent": 1, "rco": {"0": 0.575, "1": 0.96172}
+                      }, "6": {"0": 1, "1": 1, "eid": 8, "flag": 0, "tangent": 1, "rco": {"0": 1, "1": 1}}, "length": 7
+                    }, "deg": 3, "eidgen": {"cur": 14}, "range": {"length": 2}
+                  }, "1": {"equation": "x > 0.5"}, "length": 7
+                }, "_active": "EquationCurve"
+              }, "flag": 5, "scale": 5.717148891715119
+            }, "length": 7
+          }
+        }
+      }, "1" : {
+        "prop": {
+          "baseUnit"     : "pixel", "displayUnit": "pixel", "range": {"length": 2}, "uiRange": {"length": 2},
+          "decimalPlaces": 1, "data": 5, "slideSpeed": 2
+        }
+      }, "2" : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 2, "slideSpeed": 2}}, "3": {
+        "prop": {
+          "range": {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 2, "data": 0, "slideSpeed": 2
+        }
+      }, "4" : {
+        "prop": {
+          "range": {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 2, "data": 0, "slideSpeed": 2
+        }
+      }, "5" : {
+        "prop": {
+          "range": {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 2, "data": 0, "slideSpeed": 2
+        }
+      }, "6" : {
+        "prop": {
+          "range": {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 2, "data": 0, "slideSpeed": 2
+        }
+      }, "7" : {
+        "prop": {
+          "range"     : {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 2, "data": 0.2817158314313076,
+          "slideSpeed": 3
+        }
+      }, "8" : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 2, "slideSpeed": 2}}, "9": {
+        "prop": {
+          "range": {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 2,
+          "data" : {"0": 0.10838701542876839, "1": 0.2799068189971263, "2": 0.59536563722126}, "slideSpeed": 2
+        }
+      }, "10": {
+        "prop": {
+          "baseUnit"     : "degree", "displayUnit": "degree", "range": {"length": 2}, "uiRange": {"length": 2},
+          "decimalPlaces": 1, "slideSpeed": 2
+        }
+      }, "11": {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 2, "slideSpeed": 2}},
+      "12"   : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 2, "slideSpeed": 3}},
+      "13"   : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 2}},
+      "14"   : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 3, "slideSpeed": 2}},
+      "15"   : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 3, "slideSpeed": 2}},
+      "16"   : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 3, "slideSpeed": 2}},
+      "17"   : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 3, "slideSpeed": 2}},
+      "18"   : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 3, "slideSpeed": 2}},
+      "19"   : {"prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "decimalPlaces": 2, "slideSpeed": 2}}
+    }, "tool"     : 0
+  }, "channelOrder": ["strength", "radius", "hue", "scatter", "smear", "smearLen", "smearRate", "spacing",
+                      "alphaLighting", "color", "angle", "squish", "soft", "random", "alphaLightingMul", "param1",
+                      "param2", "param3", "param4", "color2"]
+};
+
+export const YarnSmear = {
+  "name"           : "Yarn Smear", "json": {
+    "name"   : "Yarn Smear", "tool": 1, "flag": 2, "channels": {
+      "0"    : {
+        "prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "data": 0.8326056428657945}, "dynamics": {
+          "mappings": {
+            "0": {"flag": 3}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "1" : {
+        "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "2" : {
+        "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "3" : {
+        "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "4" : {
+        "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "5" : {
+        "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "6" : {
+        "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "7" : {
+        "prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "data": 0.909157691896424}, "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "8" : {
+        "prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "data": 1.1}, "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "9" : {
+        "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "10": {
+        "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "11": {
+        "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "12": {
+        "prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "data": 0.18895325180171996}, "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "13": {
+        "prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "data": 4.122456395348838}, "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "14": {
+        "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "15": {
+        "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "16": {
+        "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "17": {
+        "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "18": {
+        "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "19": {
+        "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }
+    }, "mask": 5, "sourcePreset": "Yarn Smear"
+  }, "channelOrder": ["strength", "radius", "hue", "scatter", "smear", "smearLen", "smearRate", "spacing",
+                      "alphaLighting", "color", "angle", "squish", "soft", "random", "alphaLightingMul", "param1",
+                      "param2", "param3", "param4", "color2"]
+};
+
+export const FanSmear = {
+  "name"           : "Fan Smear", "json": {
+    "name"   : "Fan Smear", "tool": 1, "flag": 2, "channels": {
+      "0"    : {
+        "prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "data": 1}, "dynamics": {
+          "mappings": {
+            "0": {"flag": 3}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "1" : {
+        "prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "data": 50}, "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "2" : {
+        "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "3" : {
+        "prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "data": 0}, "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "4" : {
+        "prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "data": 0.24951313817223836}, "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "5" : {
+        "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "6" : {
+        "prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "data": 0.2848823015079942}, "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "7" : {
+        "prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "data": 0.3235446505287821}, "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "8" : {
+        "prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "data": 1.1}, "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "9" : {
+        "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "10": {
+        "prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "data": 52.15090729469476}, "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 7, "factor": 0.0760666011839874, "scale": 0.5}, "length": 7
+          }
+        }
+      }, "11": {
+        "prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "data": 0.3254113722217175}, "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "12": {
+        "prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "data": 0.21220930232558138}, "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "13": {
+        "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "14": {
+        "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "15": {
+        "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "16": {
+        "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "17": {
+        "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "18": {
+        "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "19": {
+        "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }
+    }, "mask": 1, "sourcePreset": "Fan Smear"
+  }, "channelOrder": ["strength", "radius", "hue", "scatter", "smear", "smearLen", "smearRate", "spacing",
+                      "alphaLighting", "color", "angle", "squish", "soft", "random", "alphaLightingMul", "param1",
+                      "param2", "param3", "param4", "color2"]
+};
+
+
+export const FanDraw = {
+  "name"           : "Fan Draw", "json": {
+    "name"   : "Fan Draw", "tool": 0, "flag": 2, "channels": {
+      "0"    : {
+        "prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "data": 1}, "dynamics": {
+          "mappings": {
+            "0": {"flag": 3}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "1" : {
+        "prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "data": 50}, "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "2" : {
+        "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "3" : {
+        "prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "data": 0}, "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "4" : {
+        "prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "data": 0.09}, "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "5" : {
+        "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "6" : {
+        "prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "data": 0.2848823015079942}, "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "7" : {
+        "prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "data": 0.3235446505287821}, "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "8" : {
+        "prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "data": 0.45}, "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "9" : {
+        "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "10": {
+        "prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "data": 52.15090729469476}, "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 7, "factor": 0.0760666011839874, "scale": 0.5}, "length": 7
+          }
+        }
+      }, "11": {
+        "prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "data": 0.3254113722217175}, "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "12": {
+        "prop": {"range": {"length": 2}, "uiRange": {"length": 2}, "data": 0.21220930232558138}, "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "13": {
+        "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "14": {
+        "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "15": {
+        "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "16": {
+        "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "17": {
+        "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "18": {
+        "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }, "19": {
+        "dynamics": {
+          "mappings": {
+            "0": {"flag": 2}, "1": {"flag": 2}, "2": {"flag": 2}, "3": {"flag": 2}, "4": {"flag": 2}, "5": {"flag": 2},
+            "6": {"flag": 6}, "length": 7
+          }
+        }
+      }
+    }, "mask": 1, "sourcePreset": "Fan Draw"
+  }, "channelOrder": ["strength", "radius", "hue", "scatter", "smear", "smearLen", "smearRate", "spacing",
+                      "alphaLighting", "color", "angle", "squish", "soft", "random", "alphaLightingMul", "param1",
+                      "param2", "param3", "param4", "color2"]
+};
+
 export const Presets = {
   DrawBase,
   SmearBase,
@@ -809,6 +1344,10 @@ export const Presets = {
   TexturedSmear3,
   TexturedDraw,
   YarnDraw,
+  SeamDraw,
+  YarnSmear,
+  FanSmear,
+  FanDraw,
 }
 
 window._Presets = Presets;

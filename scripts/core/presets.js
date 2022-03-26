@@ -1,6 +1,6 @@
 import {
   nstructjs, util, Vector2, math, UIBase, Vector4,
-  simple, EnumProperty
+  simple, EnumProperty, lzstring
 } from '../path.ux/scripts/pathux.js';
 import {Presets} from '../presets/brush_presets.js';
 
@@ -8,6 +8,157 @@ export const PresetClasses = [];
 import {appLocalStorage} from './localStorage.js';
 
 const DIR_KEY = "p_preset_dir";
+
+/*
+async function readStream(stream) {
+  let data2 = [];
+
+  while (1) {
+    let {value, done} = await stream.read();
+
+    if (done) {
+      break;
+    }
+
+    data2 = data2.concat(util.list(value));
+  }
+
+  return data2;
+}
+
+async function compress(data) {
+  if (typeof data === "string") {
+
+  }
+
+  let blob = new Blob([data], {type: "text/json"});
+
+  let ds = new CompressionStream("gzip");
+  //let writer = ds.getWriter();
+
+  let reader = blob.stream().pipeThrough(ds).getReader();
+  let data2 = await readStream(reader);
+
+  let s = '';
+  for (let c of data2) {
+    s += String.fromCharCode(c);
+  }
+
+  return btoa(s);
+}
+
+async function decompress(data) {
+  let s = atob(data);
+  data = [];
+
+  for (let i = 0; i < s.length; i++) {
+    data.push(s.charCodeAt(i));
+  }
+
+  data = new Uint8Array(data).buffer;
+
+  let blob = new Blob([data]);
+  let reader = await blob.stream().pipeThrough(new DecompressionStream("gzip"));
+  reader = reader.getReader();
+
+  let ret = await readStream(reader);
+
+  s = '';
+  for (let c of ret) {
+    s += String.fromCharCode(c);
+  }
+
+  return s;
+}
+
+window._compress = compress;
+window._decompress = decompress;
+*/
+
+function readMeta(data) {
+  return {
+    version: data[0],
+    flag   : data[1],
+    size   : data[2] | (data[3]<<8) | (data[4]<<16) | (data[5]<<24),
+  }
+}
+
+function writeMeta(data, size) {
+  data[0] = 0; //version
+  data[1] = 0; //reserved for flags
+  data[2] = size & 255;
+  data[3] = (size>>8) & 255;
+  data[4] = (size>>16) & 255;
+  data[5] = (size>>24) & 255;
+}
+
+const metaSize = 6;
+const maxRow = 4096;
+
+function getdata(data) {
+
+}
+
+window.compress = function (data) {
+  if (typeof data === 'string') {
+    let s = data;
+    data = [];
+
+    for (let i = 0; i < s.length; i++) {
+      data.push(s.charCodeAt(i));
+    }
+  }
+
+  if (data instanceof ArrayBuffer) {
+    data = new Uint8Array(data);
+  }
+
+  if (data instanceof DataView) {
+    data = new Uint8Array(data.buffer);
+  }
+
+  let size = Math.ceil((data.length + metaSize)/4.0);
+  let w, h;
+
+  if (size < maxRow) {
+    w = size;
+    h = 1;
+  } else {
+    w = maxRow;
+    h = Math.ceil(size/maxRow);
+  }
+
+  console.log(w, h);
+
+  let image = new ImageData(w, h);
+  let idata = image.data;
+
+  let idx = metaSize;
+  for (let i = 0; i < data.length; i++) {
+    idata[idx++] = data[i];
+  }
+
+  writeMeta(idata, data.length);
+
+  console.log(image);
+
+  let canvas = document.createElement("canvas");
+  let g = canvas.getContext("2d");
+
+  canvas.w = w;
+  canvas.height = h;
+
+  g.putImageData(image, 0, 0);
+
+  return canvas.toDataURL();
+}
+
+window.decompress = function (data) {
+  let header = "data:image/png;base64,";
+
+  data = data.slice(header.length, data.length);
+  let s = atob(data);
+}
 
 export class PresetList extends Array {
   constructor(typeName) {
@@ -493,6 +644,10 @@ export class Preset {
   }
 
   static loadSave(json) {
+    if (json.compress) {
+      json = JSON.parse(lzstring.decompressFromBase64(json.compress));
+    }
+
     let istruct = new nstructjs.STRUCT();
     istruct.parse_structs(json.schema);
 
@@ -568,10 +723,18 @@ export class Preset {
 
   save() {
     let lskey = this.lsKey();
-
     let json = this.createSave()
+
+    let data = JSON.stringify(json);
+    data = lzstring.compressToBase64(data);
+
+    appLocalStorage[lskey] = JSON.stringify({
+      name    : json.name,
+      id      : json.id,
+      compress: data,
+    })
+
     this.date = json.date;
-    appLocalStorage[lskey] = JSON.stringify(json);
   }
 
   loadSTRUCT(reader) {
@@ -602,3 +765,13 @@ export function startPresets() {
 }
 
 window._presetManager = presetManager;
+
+window.deleteAllPresets = function () {
+  for (let k in appLocalStorage) {
+    if (k.startsWith("_preset_brush")) {
+      delete appLocalStorage[k];
+    }
+  }
+
+  delete appLocalStorage[DIR_KEY];
+}

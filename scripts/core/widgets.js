@@ -1085,6 +1085,12 @@ export class ColorBlendPreview extends Container {
       case BrushMixModes.HSV:
         mixFunc = Pigment.mixRGB_HSV;
         break;
+      case BrushMixModes.YUV:
+        mixFunc = Pigment.mixRGB_YUV;
+        break;
+      case BrushMixModes.TEST:
+        mixFunc = Pigment.mixRGB_Test;
+        break;
     }
 
     const doRaw = this.showRaw.checked;
@@ -1118,10 +1124,13 @@ export class ColorBlendPreview extends Container {
     let brush = this.ctx.api.getValue(this.ctx, this.getAttribute("datapath"));
 
     let digest = this._updateDigest.reset();
-    digest.add(brush.color);
-    digest.add(brush.color2);
+    digest.add(this.ctx.unified.color.getValue());
+    digest.add(this.ctx.unified.color2.getValue());
 
+    digest.add(brush.channels.get("color").flag);
+    digest.add(brush.channels.get("color2").flag);
     digest.add(brush.mixMode);
+    digest.add(this.ctx.pigments.updateGen);
     digest.add(this.showRaw.checked);
 
     if (this.ctx.canvas) {

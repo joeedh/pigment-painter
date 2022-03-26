@@ -31,6 +31,8 @@ export const BrushMixModes = {
   SIMPLE  : 1,
   CMYK_HSV: 2,
   HSV     : 3,
+  YUV     : 4,
+  TEST    : 5,
 };
 
 export const DynamicFlags = {
@@ -761,14 +763,14 @@ export class BrushChannelSet extends Array {
         value      : 1.2, uiName: "Rate", range: [0.0, 2.0], slideSpeed: 2.0, decimalPlaces: 2,
         description: "Smear color pickup rate."
       },
-      spacing         : {value: 0.25, range: [0.001, 2.5], step: 0.05, slideSpeed: 3.0, decimalPlaces: 2, expRate: 2.0},
-      alphaLighting   : {value: 0.25, range: [0.0, 2.0], uiName: "light"},
+      spacing         : {value: 0.25, range: [0.001, 1.35], step: 0.05, slideSpeed: 3.0, decimalPlaces: 2, expRate: 2.0},
+      alphaLighting   : {value: 0.25, range: [0.0, 1.1], uiName: "light"},
       color           : {value: new Vector4([0.11, 0.28, 0.6, 1.0]), inherit: true},
       angle           : {value: 0.0, range: [0.0, 360.0], unit: "degree", decimalPlaces: 1, step: 1},
       squish          : {value: 0.0, range: [0.0, 0.95]},
       soft            : {value: 0.25, range: [0.0, 1.0], slideSpeed: 3.0, step: 0.05, decimalPlaces: 2},
       random          : {value: 0.0, range: [0.0, 5.0], step: 0.25, expRate: 1.5, slideSpeed: 1.0, decimalPlaces: 2},
-      alphaLightingMul: {value: 1.0, range: [0.01, 2.0], step: 0.1, decimalPlaces: 3}, //set by brush alphas
+      alphaLightingMul: {value: 1.0, range: [0.01, 1.1], step: 0.1, decimalPlaces: 3}, //set by brush alphas
       param1          : {value: 0.0, range: [-5.0, 5.0], step: 0.1, decimalPlaces: 3},
       param2          : {value: 0.0, range: [-5.0, 5.0], step: 0.1, decimalPlaces: 3},
       param3          : {value: 0.0, range: [-5.0, 5.0], step: 0.1, decimalPlaces: 3},

@@ -61,6 +61,8 @@ export class BrushStrokeOp extends ImageOp {
 
     this.mpos = new Vector2();
     this.lastMpos = new Vector2();
+
+    this.lastds = undefined;
   }
 
   static tooldef() {
@@ -200,9 +202,18 @@ export class BrushStrokeOp extends ImageOp {
     }
     //console.log(x, y, dx, dy, t, ds);
 
-    this.s += deltaS/(2.0*ds.radius);
+    //this.s += deltaS/(2.0*ds.radius);
+    if (this.lastds) {
+      //this.s += Math.sqrt((this.lastds.x - ds.x)**2 + (this.lastds.y - ds.y)**2);
+    }
+
+    //this.s += dt;
+    this.s += ds.spacing;
+    this.deviceInputs.distance = this.s*0.05;
 
     this.execDot(this.modal_ctx, ds);
+
+    this.lastds = ds;
   }
 
   getMappings(pressure, tiltX, tiltY, dx, dy) {

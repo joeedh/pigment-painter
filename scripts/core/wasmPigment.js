@@ -8,6 +8,9 @@ let rets = util.cachering.fromConstructor(Vector3, 64);
 
 const cache = new Map();
 
+let idgen = 1;
+export const keymap = new WeakMap();
+
 export class WasmPigment {
   constructor(ptr, pigment) {
     this.ptr = ptr;
@@ -25,7 +28,16 @@ export class WasmPigment {
   }
 
   static get(pigment_data, idx, k1, k2, colorScale) {
-    let ret = cache.get(idx);
+    let id = keymap.get(pigment_data);
+
+    if (id === undefined) {
+      id = idgen++;
+      keymap.set(pigment_data, id);
+    }
+
+    id = idx | (id << 16);
+
+    let ret = cache.get(id);
     if (ret) {
       return ret;
     }
@@ -42,7 +54,7 @@ export class WasmPigment {
     let ptr = wasmModule.asm.makePigmentData(len, k1, k2, colorScale, wmin, wmax);
 
     let p = new WasmPigment(ptr, idx);
-    cache.set(idx, p);
+    cache.set(id, p);
 
     let kptr = wasmModule.asm.getPigmentK(ptr);
     let sptr = wasmModule.asm.getPigmentS(ptr);

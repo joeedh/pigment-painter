@@ -918,6 +918,104 @@ vec4 pigmentMix(vec4 a, vec4 b, float fac)
   
   return c;
 }
+#elif MIX_MODE == 4
+
+vec3 rgb_to_yuv(float r, float g, float b) {
+  vec3 c = vec3(r, g, b);
+  
+  //c = ungamma(c);
+   
+  c = transpose(mat3(
+    vec3(0.299, 0.587, 0.114),
+    vec3(-0.1471, -0.288, 0.436),
+    vec3(0.615, -0.51499, -1.0001)
+  )) * c;
+  
+  c.gb = c.gb+0.5 + 0.5;
+  
+  return c;
+}
+
+vec3 yuv_to_rgb(float y, float u, float v) {
+  vec3 c = vec3(y, u, v);
+  
+  c.gb = c.gb*2.0 - 1.0;
+
+  c = transpose(mat3(
+    vec3(1.0, 0.0, 1.13983),
+    vec3(1.0, -0.39465, -0.58060),
+    vec3(1.0, 2.03211, 0.0)
+  )) * c;
+  
+  return c;//gamma(c);
+}
+
+vec4 pigmentMix(vec4 a, vec4 b, float fac)
+{ 
+  vec3 fa = rgb_to_yuv(a.r, a.g, a.b);
+  vec3 fb = rgb_to_yuv(b.r, b.g, b.b);
+  vec3 ea = a.rgb - yuv_to_rgb(fa.r, fa.g, fa.b);
+  vec3 eb = b.rgb - yuv_to_rgb(fb.r, fb.g, fb.b);
+  
+  vec3 c = mix(fa, fb, fac);
+  vec3 delta = mix(ea, eb, fac);
+  
+  c = yuv_to_rgb(c.r, c.g, c.b);
+  //c.gb = c.gb*0.5 + 0.5;
+  
+  c += delta;
+  
+  return vec4(c, 1.0);
+}
+#elif MIX_MODE == 5
+
+vec3 rgb_to_test(float r, float g, float b) {
+  vec3 c = vec3(r, g, b);
+  
+  //c = ungamma(c);
+   
+  c = transpose(mat3(
+    vec3(0.299, 0.587, 0.114),
+    vec3(-0.1471, -0.288, 0.436),
+    vec3(0.615, -0.51499, -1.0001)
+  )) * c;
+  
+  c.gb = c.gb+0.5 + 0.5;
+  
+  return c;
+}
+
+vec3 test_to_rgb(float y, float u, float v) {
+  vec3 c = vec3(y, u, v);
+  
+  c.gb = c.gb*2.0 - 1.0;
+
+  c = transpose(mat3(
+    vec3(1.0, 0.0, 1.13983),
+    vec3(1.0, -0.39465, -0.58060),
+    vec3(1.0, 2.03211, 0.0)
+  )) * c;
+  
+  return c;//gamma(c);
+}
+
+vec4 pigmentMix(vec4 a, vec4 b, float fac)
+{ 
+  vec3 fa = rgb_to_test(a.r, a.g, a.b);
+  vec3 fb = rgb_to_test(b.r, b.g, b.b);
+  vec3 ea = a.rgb - test_to_rgb(fa.r, fa.g, fa.b);
+  vec3 eb = b.rgb - test_to_rgb(fb.r, fb.g, fb.b);
+  
+  vec3 c = mix(fa, fb, fac);
+  vec3 delta = mix(ea, eb, fac);
+  
+  c = test_to_rgb(c.r, c.g, c.b);
+  //c.gb = c.gb*0.5 + 0.5;
+  
+  c += delta;
+  
+  return vec4(c, 1.0);
+}
 #endif
 
 #ifdef HAVE_BRUSH_ALPHA
