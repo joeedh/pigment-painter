@@ -732,6 +732,9 @@ export class LUTEditorWidget extends Container {
     row.pathlabel("errorOut");
 
     panel.prop("flag");
+
+    panel = panel.panel("Settings");
+
     panel.prop("randFac");
     panel.prop("newtonStep");
     panel.prop("subPoints");

@@ -4,7 +4,7 @@
 * it*/
 import {Camera} from '../webgl/webgl.js';
 
-export const WIDE_GAMUT = true;
+export const WIDE_GAMUT = false;
 
 export const USE_LUT_IMAGE = true;
 export const LINEAR_LUT = 0;
@@ -557,7 +557,7 @@ export class Pigment {
     return ret;
   }
 
-  static mixRGB_YUV(pigments, colors, ws, dither = false, bilinear, errorCorrect=true) {
+  static mixRGB_YUV(pigments, colors, ws, dither = false, bilinear, errorCorrect = true) {
     let ret = mixRGBRets.next();
     ret[0] = ret[1] = ret[2] = 0.0;
 
@@ -600,7 +600,7 @@ export class Pigment {
     return ret;
   }
 
-  static mixRGB_Test(pigments, colors, ws, dither = false, bilinear, errorCorrect=true) {
+  static mixRGB_Test(pigments, colors, ws, dither = false, bilinear, errorCorrect = true) {
     let ret = mixRGBRets.next();
     ret[0] = ret[1] = ret[2] = 0.0;
 
@@ -766,7 +766,15 @@ export class Pigment {
     let w1 = lightWaveLengths[0];
     let w2 = lightWaveLengths[1];
 
-    let k1 = window.REFL_K1, k2 = window.REFL_K2;
+    //let k1 = window.REFL_K1, k2 = window.REFL_K2;
+    let k1, k2;
+    if (pigments.useCustomKs) {
+      k1 = pigments.k1;
+      k2 = pigments.k2;
+    } else {
+      k1 = window.REFL_K1;
+      k2 = window.REFL_K2;
+    }
 
     let f = w1, df = (w2 - w1)/steps;
 
@@ -1484,7 +1492,7 @@ export class PigmentSet extends Array {
       .range(0.01, 25.0)
       .step(0.2);
 
-    st.int("blurRadius", "blurRadius", "Blur Radius").noUnits().range(1, 32);
+    st.int("blurRadius", "blurRadius", "Blur Radius").noUnits().range(1, 128);
 
     st.bool("useCustomKs", "useCustomKs", "Custom Specular Ks");
     st.float("k1", "k1", "K1").noUnits().range(0.0, 1.0).step(0.01);
@@ -2758,15 +2766,15 @@ export class PigmentSet extends Array {
         rgb[i] = Math.min(Math.max(rgb[i], 0.0), 1.0)*0.99999;
       }
 
-      let ir = ~~(rgb[0]*(dimen-1));
-      let ig = ~~(rgb[1]*(dimen-1));
-      let ib = ~~(rgb[2]*(dimen-1));
+      let ir = ~~(rgb[0]*(dimen - 1));
+      let ig = ~~(rgb[1]*(dimen - 1));
+      let ib = ~~(rgb[2]*(dimen - 1));
 
       let idx = (ib*dimen*dimen + ig*dimen + ir)*4;
 
-      let pir = ~~(rgb[0]*(pdimen-1));
-      let pig = ~~(rgb[1]*(pdimen-1));
-      let pib = ~~(rgb[2]*(pdimen-1));
+      let pir = ~~(rgb[0]*(pdimen - 1));
+      let pig = ~~(rgb[1]*(pdimen - 1));
+      let pib = ~~(rgb[2]*(pdimen - 1));
       let pidx = pib*pdimen*pdimen + pig*pdimen + pir;
 
       if (used[idx/4] === 0) {
@@ -2816,12 +2824,12 @@ export class PigmentSet extends Array {
         k *= mul;
       }
 
-      let pir = ~~(rgb[0]*(pdimen-1))
-      let pig = ~~(rgb[1]*(pdimen-1))
-      let pib = ~~(rgb[2]*(pdimen-1))
+      let pir = ~~(rgb[0]*(pdimen - 1))
+      let pig = ~~(rgb[1]*(pdimen - 1))
+      let pib = ~~(rgb[2]*(pdimen - 1))
 
       let pidx = pib*pdimen*pdimen + pig*pdimen + pir;
-      let prob = 1.0 / (1.0 + pdf[pidx]**0.5);
+      let prob = 1.0/(1.0 + pdf[pidx]**0.5);
 
       if (Math.random() > prob) {
         step--;
@@ -2909,7 +2917,7 @@ export class PigmentSet extends Array {
       let swapLut = new Float32Array(lut);
       swapLut.dimen = dimen;
 
-      let steps = this.blurRadius*32;
+      let steps = this.blurRadius*8;
       let used2 = new Uint16Array(usedcpy);
 
       for (let i = 0; i < usedcpy.length; i++) {
@@ -3161,9 +3169,10 @@ export class PigmentSet extends Array {
     let queue = [];
     let offs = [];
 
-    for (let x = -1; x <= 1; x++) {
-      for (let y = -1; y <= 1; y++) {
-        for (let z = -1; z <= 1; z++) {
+    let n1 = 1;
+    for (let x = -n1; x <= n1; x++) {
+      for (let y = -n1; y <= n1; y++) {
+        for (let z = -n1; z <= n1; z++) {
           let dis = Math.sqrt(x*x + y*y + z*z);
 
           offs.push([x, y, z, dis]);
@@ -3172,8 +3181,12 @@ export class PigmentSet extends Array {
     }
 
     let DX = 0, DY = 1, DZ = 2, DDIS = 3, DTOT = 4;
+
     let dis2 = new Float32Array(used.length*DTOT);
     dis2.fill(0.0);
+
+    let dis3 = new Float32Array(used.length*DTOT);
+    dis3.fill(0.0);
 
     for (let x = 0; x < dimen; x++) {
       for (let y = 0; y < dimen; y++) {
@@ -3195,6 +3208,8 @@ export class PigmentSet extends Array {
         }
       }
     }
+
+    dis3.set(dis2);
 
     //XXX
     //queue.length = 0;
@@ -3298,6 +3313,8 @@ export class PigmentSet extends Array {
     } //*/
 
     let doStep = (step) => {
+      dis3.set(dis2);
+
       for (let i = 0; i < queue.length; i += 3) {
         let x = queue[i], y = queue[i + 1], z = queue[i + 2];
         let idx = dimen*dimen*z + dimen*y + x;
@@ -3319,18 +3336,22 @@ export class PigmentSet extends Array {
 
           let idx2 = dimen*dimen*z2 + dimen*y2 + x2;
 
-          let srcx = dis2[idx*DTOT];
-          let srcy = dis2[idx*DTOT + 1];
-          let srcz = dis2[idx*DTOT + 2];
+          let srcx = dis3[idx*DTOT];
+          let srcy = dis3[idx*DTOT + 1];
+          let srcz = dis3[idx*DTOT + 2];
 
           let dist2 = Math.sqrt((srcx - x2)**2 + (srcy - y2)**2 + (srcz - z2)**2);
 
           if (!used[idx2]) {
-            if (!used2[idx2]) {
+            let r = (Math.random() - 0.5)*4.0;
+
+            if (!(used2[idx2] & 2)) {
               queue2.push(x2);
               queue2.push(y2);
               queue2.push(z2);
-            } else if (dist2 > dis2[idx2*DTOT + DDIS]) {
+
+              used2[idx2] |= 2;
+            } else if (dist2 >= dis2[idx2*DTOT + DDIS] + r) {
               continue;
             }
 
@@ -3341,7 +3362,7 @@ export class PigmentSet extends Array {
 
             dis2[idx2*DTOT + DDIS] = dist2;
 
-            used2[idx2] = 1;
+            used2[idx2] |= 1;
 
             if (isNaN(lut[idx*4])) {
               console.log(lut[idx*4], lut[idx*4 + 1], lut[idx*4 + 2], lut[idx*4 + 3]);
@@ -3370,7 +3391,7 @@ export class PigmentSet extends Array {
         let x = queue2[i], y = queue2[i + 1], z = queue2[i + 2];
         let idx = dimen*dimen*z + dimen*y + x;
 
-        if (!used2[idx]) {
+        if (!(used2[idx] & 1)) {
           continue;
         }
 
@@ -3422,6 +3443,84 @@ export class PigmentSet extends Array {
 
     reporter("Fill", 1.0);
 
+    let rand = new util.MersenneRandom(0);
+
+    for (let iz = 0; iz < dimen; iz++) {
+      for (let iy = 0; iy < dimen; iy++) {
+        for (let ix = 0; ix < dimen; ix++) {
+          let idx = iz*dimen*dimen + iy*dimen + ix;
+
+          let di = idx*DTOT;
+
+          if (!mask[idx]) {
+            continue;
+          }
+
+          let sx = dis2[di];
+          let sy = dis2[di + 1];
+          let sz = dis2[di + 2];
+
+          let steps = 240;
+          let r = 5.0;
+
+          let dx = sx - ix;
+          let dy = sy - iy;
+          let dz = sz - iz;
+
+          let mindis = dx*dx + dy*dy + dz*dz;
+
+          for (let i = 0; i < steps; i++) {
+            let rx = (rand.random() - 0.5)*r;
+            let ry = (rand.random() - 0.5)*r;
+            let rz = (rand.random() - 0.5)*r;
+
+            let ix2 = ~~(rx + sx);
+            let iy2 = ~~(ry + sy);
+            let iz2 = ~~(rz + sz);
+
+            ix2 = Math.min(Math.max(ix2, 0), dimen - 1);
+            iy2 = Math.min(Math.max(iy2, 0), dimen - 1);
+            iz2 = Math.min(Math.max(iz2, 0), dimen - 1);
+
+            let idx2 = iz2*dimen*dimen + iy2*dimen + ix2;
+
+            if (mask[idx2]) {
+              continue;
+            }
+
+            let dx = ix2 - ix;
+            let dy = iy2 - iy;
+            let dz = iz2 - iz;
+
+            let dis2 = dx*dx + dy*dy + dz*dz;
+            if (dis2 < mindis) {
+              mindis = dis2;
+
+              sx = ix2;
+              sy = iy2;
+              sz = iz2;
+
+              let li1 = idx*LTOT;
+              let li2 = idx2*LTOT;
+
+              lut[li1] = lut[li2];
+              lut[li1 + 1] = lut[li2 + 1];
+              lut[li1 + 2] = lut[li2 + 2];
+              lut[li1 + 3] = lut[li2 + 3];
+            }
+          }
+
+          dis2[di] = sx;
+          dis2[di + 1] = sy;
+          dis2[di + 2] = sz;
+        }
+      }
+
+      reporter("Fill2", iz/dimen);
+      yield;
+    }
+
+    reporter("Fill2", 1.0);
     return; //XXX
 
     if (!blur) {

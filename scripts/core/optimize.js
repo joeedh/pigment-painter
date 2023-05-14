@@ -7,15 +7,19 @@ import {KTOT, Pigment, pigment_data, PigmentSet, setInsideSolver, START_REFL_K1,
 import '../util/numeric.js';
 
 import * as pigment_data_orig from './pigment_data_original.js';
+import {distToCubic3, fitCubic3} from './bezier.js';
 
 export const SolverFlags = {
-  NEWTON     : 1,
-  ANNEALING  : 2,
-  HIGH_PASS  : 4,
-  STRETCH    : 8,
-  WIDE_GAMUT : 16,
-  FIXED_PATHS: 32,
+  NEWTON   : 1,
+  ANNEALING: 2,
+  //NELDER_MEAD: 4,
+  HIGH_PASS  : 8,
+  STRETCH    : 16,
+  WIDE_GAMUT : 32,
+  FIXED_PATHS: 64,
 }
+
+let K1 = 0, K2 = 2, KCOLORSCALE = 3, VKTOT = 4;
 
 export class SolverSettings {
   constructor() {
@@ -185,6 +189,12 @@ export class Optimizer {
     this.origPigments.checkWasm();
     this.origPigments.pigment_data = pigment_data_orig;
 
+    this.kvec = new Float64Array(VKTOT);
+
+    this.kvec[K1] = pigments.k1;
+    this.kvec[K2] = pigments.k2;
+    this.kvec[KCOLORSCALE] = pigments.colorScale;
+
     for (let p of pigments) {
       let p2 = p.copy();
 
@@ -194,8 +204,8 @@ export class Optimizer {
       this.origPigments.push(p2);
     }
 
-    if (0&&origPigments) {
-      for (let i=0; i<origPigments.length; i++) {
+    if (0 && origPigments) {
+      for (let i = 0; i < origPigments.length; i++) {
         if (this.origPigments[i].pigment === origPigments[i].pigment) {
           this.origPigments[i].wasm = origPigments[i].wasm;
         }
@@ -368,6 +378,8 @@ export class Optimizer {
 
       err += this.origPathError([1, 0, 0, 0], [0, 0, 1, 0]);
       err += this.origPathError([0, 1, 0, 0], [0, 0, 1, 0]);
+
+      err += this.origPathError([0, 0, 0, 1], [1, 1, 1, 0]);
     }
 
     return err;
@@ -379,37 +391,66 @@ export class Optimizer {
     let ws = new Vector4();
 
     let err = 0.0;
-    let steps = 8;
-    let t = 0.0, dt = 1.0 / (steps - 1);
+    let steps = 16;
+    let t = 0.0, dt = 1.0/(steps - 1);
 
-    for (let i=0; i<steps; i++, t += dt) {
+    ws.load(ws1).interp(ws2, 1.0/3.0);
+    let c1 = Pigment.toRGB(this.origPigments, ws);
+
+    ws.load(ws1).interp(ws2, 2.0/3.0);
+    let c2 = Pigment.toRGB(this.origPigments, ws);
+
+    let a = new Vector4();
+    let b = new Vector4();
+    let c = new Vector4();
+    let d = new Vector4();
+
+    a.loadXYZ(c1[0], c1[1], c1[2]);
+    d.loadXYZ(c2[0], c2[1], c2[2]);
+
+    a[3] = d[3] = 0.0;
+    fitCubic3(a, b, c, d, c1, c2);
+
+    for (let i = 0; i < steps; i++, t += dt) {
       ws.load(ws1).interp(ws2, t);
 
       let sum = ws[0] + ws[1] + ws[2] + ws[3];
-      sum = sum > 0.0 ? 1.0 / sum : sum;
+      sum = sum > 0.0 ? 1.0/sum : sum;
       ws.mulScalar(sum);
 
       let c1 = Pigment.toRGB(this.pigments, ws);
       let c2 = Pigment.toRGB(this.origPigments, ws);
 
-      let bad = false;
+      if (0) {
+        let bad = false;
 
-      for (let j=0; j<3; j++) {
-        if (c2[j] < 0 || c2[j] >= 1.0) {
-          bad = true;
-          break;
+        for (let j = 0; j < 3; j++) {
+          if (c2[j] < 0 || c2[j] >= 1.0) {
+            bad = true;
+            break;
+          }
+        }
+
+        if (bad) {
+          continue;
         }
       }
 
-      if (bad) {
-        continue;
-      }
-
       c2.sub(c1);
-      err += c2.dot(c2)*dt;
+      let dis = c2.dot(c2);
+
+      let dis2 = distToCubic3(c1, a, b, c, d);
+
+      return dis;
+
+      /* stretch points to prevent clustering in a single point*/
+      let t2 = Math.tent(t);
+      dis += (dis2 - dis)*t2;
+
+      err += dis*dt;
     }
 
-    return err*5.0;
+    return err*2.5;
   }
 
   gradientDescent(points) {
@@ -421,7 +462,8 @@ export class Optimizer {
       origs = this.saveOrig(ps);
     }
 
-    let df = this.wideGamut ? 0.001 : 0.0001;
+    //let df = this.wideGamut ? 0.001 : 0.0001;
+    let df = 0.005;
     let oneDf = 1.0/df;
 
     let gs = [];
@@ -433,13 +475,15 @@ export class Optimizer {
     gk *= this.settings.newtonStep;
 
     for (let p of ps) {
-      let grads = [[], []];
+      let grads = [[], [], []];
       gs.push(grads);
 
-      let {tables, step, stepRange} = this.getTables(p);
+      let {tables, steps, stepRanges} = this.getTables(p);
 
       let tablei = 0;
       for (let table of tables) {
+        let step = steps[tablei], stepRange = stepRanges[tablei];
+
         grads[tablei].length = table.length;
         let gs2 = grads[tablei];
 
@@ -447,6 +491,9 @@ export class Optimizer {
           for (let j = 0; j < stepRange; j++) {
             let orig = table[i + j];
             table[i + j] += df;
+
+            this.updateKVec();
+
             let r2 = this.error(points);
             table[i + j] = orig;
 
@@ -471,6 +518,8 @@ export class Optimizer {
       let orig = ps.colorScale;
       ps.colorScale += df;
 
+      this.updateKVec();
+
       let r2 = this.error(points);
       let g = scale_g = (r2 - r1)/df;
 
@@ -482,10 +531,14 @@ export class Optimizer {
     let fac = -r1*0.875*gk;
 
     for (let i = 0; i < ps.length; i++) {
-      let {tables, step, stepRange} = this.getTables(ps[i]);
+      let {tables, steps, stepRanges} = this.getTables(ps[i]);
       let grads = gs[i];
 
-      for (let tablei = 0; tablei < 2; tablei++) {
+      console.log(grads[2]);
+
+      for (let tablei = 0; tablei < tables.length; tablei++) {
+        let step = steps[tablei], stepRange = stepRanges[tablei];
+
         let table = tables[tablei];
         let gs2 = grads[tablei];
 
@@ -498,8 +551,11 @@ export class Optimizer {
       }
     }
 
+    this.updateKVec();
+
     if (this.wideGamut && r1 < this.error(points)) {
       this.loadOrig(ps, origs);
+      this.updateKVec();
     }
 
     if (SOLVE_COLOR_SCALE) {
@@ -516,7 +572,7 @@ export class Optimizer {
       let pdata = pigment_data.pigmentKS[ps[i].pigment];
       let tables = [pdata.K, pdata.S];
 
-      let orig = [util.list(pdata.K), util.list(pdata.S)];
+      let orig = [util.list(pdata.K), util.list(pdata.S), util.list(this.kvec)];
       origs.push(orig);
     }
 
@@ -529,7 +585,7 @@ export class Optimizer {
       let tables = [pdata.K, pdata.S];
       let orig = origs[i];
 
-      for (let tablei = 0; tablei < 2; tablei++) {
+      for (let tablei = 0; tablei < tables.length; tablei++) {
         let table = tables[tablei];
         let otable = orig[tablei];
 
@@ -543,24 +599,93 @@ export class Optimizer {
   getTables(pigment) {
     if (pigment.useHermite) {
       return {
-        tables   : [pigment.k_hermite, pigment.s_hermite],
-        step     : KTOT,
-        stepRange: 2, //value and derivative
+        tables    : [pigment.k_hermite, pigment.s_hermite, this.kvec],
+        steps     : [KTOT, KTOT, 1],
+        stepRanges: [2, 2, 1], //value and derivative
       }
     } else {
       let pdata = pigment_data.pigmentKS[pigment.pigment];
 
       return {
-        tables   : [pdata.K, pdata.S],
-        step     : 1,
-        stepRange: 1,
+        tables    : [pdata.K, pdata.S, this.kvec],
+        steps     : [1, 1, 1],
+        stepRanges: [1, 1, 1],
       }
+    }
+  }
+
+  nelderMead(points) {
+    let ps = this.pigments;
+
+    let origs = [];
+    let tables = [];
+
+    for (let i = 0; i < ps.length; i++) {
+      let data = this.getTables(ps[i]);
+
+      for (let table of data.tables) {
+        origs.push(util.list(table));
+        tables.push(table);
+      }
+    }
+
+    for (let i = 0; i < tables.length; i++) {
+      this.nelderMeadStep(points, tables[i], origs[i]);
+    }
+  }
+
+  nelderMeadStep(points, table, orig) {
+    const totsample = 35;
+    const expand = 1.5;
+
+    let r1 = this.error(points);
+
+    let cent = 0;
+    let dcent = 1.0/table.length;
+
+    for (let i = 0; i < table.length; i++) {
+      cent += table[i]*dcent;
+    }
+
+    for (let i = 0; i < totsample; i++) {
+      let ri = ~~(Math.random()*table.length*0.99999);
+
+      let f = table[i];
+      f = 2.0*cent - f;
+
+      let origf = f;
+
+      table[ri] = f;
+
+      let r2 = this.error(points);
+
+      if (r2 < r1) {
+        f = (f - cent)*expand + cent;
+      } else {
+        f = (f - cent)/expand + cent;
+      }
+
+      table[ri] = f;
+
+      let r3 = this.error(points);
+      if (r3 >= r2) {
+        f = (orig[ri] - cent)*1.1 + cent;
+
+        table[ri] = f;
+      } else {
+        r2 = r3;
+      }
+
+      //table[ri] += (orig[ri] - table[ri]) * 0.5;
+
+      r1 = r2;
     }
   }
 
   annealing(points) {
     let ps = this.pigments;
 
+    this.updateKVec();
     let r1 = this.error(points);
 
     let decay = this.wideGamut ? 0.005 : 0.005;
@@ -580,12 +705,14 @@ export class Optimizer {
     let rand2 = this.rand2;
 
     for (let i = 0; i < ps.length; i++) {
-      let {tables, step, stepRange} = this.getTables(ps[i]);
-      let orig = [util.list(tables[0]), util.list(tables[1])];
+      let {tables, steps, stepRanges} = this.getTables(ps[i]);
+      let orig = tables.map(f => util.list(f));
+
       origs.push(orig);
 
-      for (let tablei = 0; tablei < 2; tablei++) {
+      for (let tablei = 0; tablei < tables.length; tablei++) {
         let table = tables[tablei];
+        let step = steps[tablei], stepRange = stepRanges[tablei];
 
         for (let j = 0; j < table.length; j += step) {
           for (let k = 0; k < stepRange; k++) {
@@ -600,6 +727,8 @@ export class Optimizer {
       }
     }
 
+    this.updateKVec();
+
     let r2 = this.error(points);
     let bad = r2 > r1 && rand2.random() > prob;
 
@@ -608,27 +737,31 @@ export class Optimizer {
         let {tables, step} = this.getTables(ps[i]);
         let orig = origs[i];
 
-        for (let tablei = 0; tablei < 2; tablei++) {
+        for (let tablei = 0; tablei < tables.length; tablei++) {
           let table = tables[tablei];
           let otable = orig[tablei];
 
           table.set(otable);
         }
       }
+
+      this.updateKVec();
     }
   }
 
   highPassFilter(err = 1.0) {
     const ps = this.pigments;
-    const fac = this.settings.highPassFac*0.001;
+    const fac = this.settings.highPassFac*0.0015;
 
     for (let i = 0; i < ps.length; i++) {
-      let {tables, step, stepRange} = this.getTables(ps[i]);
+      let {tables, steps, stepRanges} = this.getTables(ps[i]);
 
-      for (let tablei = 0; tablei < 2; tablei++) {
+      for (let tablei = 0; tablei < tables.length; tablei++) {
         let table = tables[tablei];
 
-        let mas = new Array(stepRange).map(ma => new util.MovingAvg(8));
+        let step = steps[tablei], stepRange = stepRanges[tablei];
+
+        let mas = util.list(new Array(stepRange)).map(ma => new util.MovingAvg(8));
 
         let t = fac*err;
 
@@ -639,11 +772,30 @@ export class Optimizer {
         }
       }
     }
+
+    this.updateKVec();
+  }
+
+  updateKVec() {
+    if (this.pigments.useCustomKs) {
+      this.kvec[K1] = Math.min(Math.max(this.kvec[K1], 0.001), 0.999);
+      this.kvec[K2] = Math.min(Math.max(this.kvec[K2], 0.001), 0.999);
+
+      this.pigments.k1 = this.kvec[K1];
+      this.pigments.k2 = this.kvec[K2];
+    }
+
+    this.pigments.colorScale = this.kvec[KCOLORSCALE];
+    this.pigments.updateWasm();
   }
 
   step() {
     let rate = this.settings.pointSubSteps;
     //rate *= 8;
+
+    this.kvec[K1] = this.pigments.k1;
+    this.kvec[K2] = this.pigments.k2;
+    this.kvec[KCOLORSCALE] = this.pigments.colorScale;
 
     this.wideGamut = this.settings.flag & SolverFlags.WIDE_GAMUT;
 
@@ -670,6 +822,10 @@ export class Optimizer {
       this.annealing(points);
     }
 
+    //if (this.settings.flag & SolverFlags.NELDER_MEAD) {
+    //  this.nelderMead(points);
+    //}
+
     let err = this.error(points);
 
     this.settings.errorOut = err;
@@ -690,6 +846,7 @@ export class Optimizer {
 
     this.stepi++;
 
+    this.updateKVec();
     setInsideSolver(false);
   }
 
