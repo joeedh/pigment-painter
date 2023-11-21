@@ -472,6 +472,7 @@ export class CanvasEditor extends simple.Editor {
 
     //panel.prop("canvas.brush.radius");
     panel.prop("canvas.brush.mask");
+    //makeBrushProp(panel, "mask")
 
     makeBrushProp(panel, "alphaLighting");
 
