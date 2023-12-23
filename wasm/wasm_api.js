@@ -7,7 +7,7 @@ window.wasmGen = 0;
 
 window.reloadWasm = function() {
   wasm().then(mod => {
-    mod["INITIAL_MEMORY"] = 1024*1024*256;
+    mod["INITIAL_MEMORY"] = 1024*1024*400;
 
     window.wasm = mod;
     return mod.ready;
@@ -20,7 +20,7 @@ window.reloadWasm = function() {
 }
 
 wasm().then(mod => {
-  mod["INITIAL_MEMORY"] = 1024*1024*256;
+  mod["INITIAL_MEMORY"] = 1024*1024*400;
 
   window.wasm = mod;
   return mod.ready;

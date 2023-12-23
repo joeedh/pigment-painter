@@ -1,7 +1,10 @@
 import {
   Vector3, Vector2, Vector4, Matrix4,
-  Quat, util, nstructjs, math
+  Quat, util, nstructjs, math, binomial
 } from '../path.ux/scripts/pathux.js';
+
+/* Bezier */
+export const USE_BERNSTEIN_BASIS = true;
 
 const eval_cachering = util.cachering.fromConstructor(Vector3, 256);
 const basis_temps = util.cachering.fromConstructor(Vector3, 64);
@@ -60,9 +63,9 @@ export class VolumePatch {
           let v = iy/(n - 1);
           let t = iz/(n - 1);
 
-          r[0] = (Math.random()-0.5);
-          r[1] = (Math.random()-0.5);
-          r[2] = (Math.random()-0.5);
+          r[0] = (Math.random() - 0.5);
+          r[1] = (Math.random() - 0.5);
+          r[2] = (Math.random() - 0.5);
 
           let idx = iz*n*n + iy*n + ix;
           ps[idx] = new Vector3().loadXYZ(u, v, t)
@@ -112,11 +115,22 @@ export class VolumePatch {
         }
       }
     }
-
-    console.log("KS", this._ks);
   }
 
   basis(s, axis, uvw, i, n) {
+    if (USE_BERNSTEIN_BASIS) {
+      return this.basisBSpline(...arguments);
+    } else {
+      return this.basisBernstein(...arguments);
+    }
+  }
+
+  basisBernstein(s, axis, uvw, i, n) {
+    return binomial(n, v)*s**v*(1.0 - s)**(n - v);
+  }
+
+  basisBSpline(s, axis, uvw, i, n) {
+
     let len = this.n;
     let ks = this._ks[axis];
     let pad = this.pad;
@@ -202,27 +216,16 @@ export class VolumePatch {
           let iz2 = Math.min(Math.max(iz, 0), n - 1);
 
           let idx = iz2*n*n + iy2*n + ix2;
-
           let p = this.ps[idx];
 
           //debugger;
 
           xyz.loadXYZ(ix, iy, iz);
           let w1 = this.basis(u, 0, xyz, ix, degree);
-
-          //xyz.loadXYZ(iz, ix, iy);
           let w2 = this.basis(v, 1, xyz, iy, degree);
-
-          //xyz.loadXYZ(iz, ix, iy);
           let w3 = this.basis(t, 2, xyz, iz, degree);
 
           let w = w1*w2*w3;
-          //if (Math.random() > 0.9998) {//util.time_ms() - time > 250) {
-          //console.log(w, p, n, ix2, iy2, iz2);
-          //console.log(u.toFixed(2), v.toFixed(2), t.toFixed(2), w.toFixed(3));
-          //time = util.time_ms();
-          //}
-
           sum.addFac(p, w);
         }
       }

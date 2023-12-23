@@ -230,9 +230,15 @@ template <bool linear_lut, int steps = 16> void toRGBIntern(float *ret, Pigment 
 
   PRINTF("qpre: %.2f %.2f %.2f\n", ret[0], ret[1], ret[2]);
 
+#if 1
   ret[0] *= colorScale;
   ret[1] *= colorScale;
   ret[2] *= colorScale;
+#else
+  ret[0] = powf(fabs(ret[0]), colorScale);
+  ret[1] = powf(fabs(ret[1]), colorScale);
+  ret[2] = powf(fabs(ret[2]), colorScale);
+#endif
 
   PRINTF("qpost: %.2f: %.2f %.2f %.2f\n", colorScale, ret[0], ret[1], ret[2]);
 

@@ -334,6 +334,16 @@ export class Optimizer {
         if (x >= 0 && y >= 0 && z >= 0 && x < cdimen && y < cdimen && z < cdimen) {
           let idx = z*cdimen*cdimen + y*cdimen + x;
 
+          if (isNaN(idx)) {
+            console.error("NaN!");
+          }
+
+          if (idx < 0) {
+            idx = 0;
+          } else if (idx >= cube.length) {
+            idx = cube.length - 1;
+          }
+
           if (!cube[idx]) {
             cube[idx] = 1;
             totcube++;
@@ -343,6 +353,7 @@ export class Optimizer {
     }
 
     totcube /= cdimen**3;
+    totcube *= 100.0;
 
     let err = 0.0;
 
@@ -363,7 +374,7 @@ export class Optimizer {
 
     if (optMode) {
       if (!this.wideGamut) {
-        err *= 1.0 + 0.15*(1.0 - totcube)**2
+        err *= 1.0 + (1.0 - totcube)**2
       } else {
         err += 2.0*(1.0 - totcube)**2;
       }
@@ -534,7 +545,7 @@ export class Optimizer {
       let {tables, steps, stepRanges} = this.getTables(ps[i]);
       let grads = gs[i];
 
-      console.log(grads[2]);
+      //console.log(grads[2]);
 
       for (let tablei = 0; tablei < tables.length; tablei++) {
         let step = steps[tablei], stepRange = stepRanges[tablei];
@@ -699,7 +710,7 @@ export class Optimizer {
 
     rfac *= this.settings.randFac;
 
-    doprint(1, "  ", rfac.toFixed(4), prob.toFixed(4));
+    doprint(1, "  decay:", rfac.toFixed(4), prob.toFixed(4));
     let origs = [];
 
     let rand2 = this.rand2;
@@ -785,7 +796,10 @@ export class Optimizer {
       this.pigments.k2 = this.kvec[K2];
     }
 
-    this.pigments.colorScale = this.kvec[KCOLORSCALE];
+    if (this.wideGamut) {
+      this.pigments.colorScale = this.kvec[KCOLORSCALE];
+    }
+
     this.pigments.updateWasm();
   }
 
@@ -795,7 +809,10 @@ export class Optimizer {
 
     this.kvec[K1] = this.pigments.k1;
     this.kvec[K2] = this.pigments.k2;
-    this.kvec[KCOLORSCALE] = this.pigments.colorScale;
+
+    if (this.wideGamut) {
+      this.kvec[KCOLORSCALE] = this.pigments.colorScale;
+    }
 
     this.wideGamut = this.settings.flag & SolverFlags.WIDE_GAMUT;
 
@@ -835,7 +852,7 @@ export class Optimizer {
     }
 
     if (this.wideGamut) {
-      doprint(2, `error: ${err.toFixed(4)} [${this.stepi%rate}]`, "COLOR_SCALE:", ps.colorScale.toFixed(3));
+      doprint(2, `error: ${err.toFixed(4)} [${this.stepi%rate}]`, "ps.colorScale:", ps.colorScale.toFixed(3));
     } else {
       doprint(2, `error: ${err.toFixed(4)} [${this.stepi%rate}]`);
     }
@@ -947,7 +964,7 @@ export function writeTables() {
     }
   }
 
-  let colorScale = COLOR_SCALE*_appstate.ctx.pigments.colorScale;
+  let colorScale = _appstate.ctx.pigments.colorScale;
 
   let hermite = pigment_data.pigmentHermite;
   let ps = _appstate.ctx.pigments;

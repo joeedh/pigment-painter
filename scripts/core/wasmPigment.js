@@ -20,14 +20,49 @@ export class WasmPigment {
 
     this.tmp1 = undefined;
     this.tmp2 = undefined;
-    this.pstmp = undefined;
+    this.tmp3 = undefined;
+    this.tmp4 = undefined;
+    this.pstmp1 = undefined;
+    this.pstmp2 = undefined;
+
+    this.lastParams = {
+      k1         : 0,
+      k2         : 0,
+      colorScale : 1.0,
+      pigmentData: undefined,
+      idx        : 0,
+      K          : [],
+      S          : [],
+    };
+  }
+
+  copyTo(b) {
+    b.ptr = this.ptr;
+    b.k1 = this.k1;
+    b.k2 = this.k2;
+    b.lastParams = this.lastParams;
+    b.tmp1 = this.tmp1;
+    b.tmp2 = this.tmp2;
+    b.tmp3 = this.tmp3;
+    b.tmp4 = this.tmp4;
+    b.pstmp1 = this.pstmp1;
+    b.pstmp2 = this.pstmp2;
+    b.K = this.K;
+    b.S = this.S;
+    b.pigment = this.pigment;
+    b.colorScale = this.colorScale;
   }
 
   update(k1, k2, colorscale) {
     wasm.wasmModule.asm.updatePigment(this.ptr, k1, k2, colorscale);
   }
 
-  static get(pigment_data, idx, k1, k2, colorScale) {
+  static clearCache(pigment_data, idx) {
+    let id = this.getCacheId(pigment_data, idx);
+    cache.delete(id);
+  }
+
+  static getCacheId(pigment_data, idx) {
     let id = keymap.get(pigment_data);
 
     if (id === undefined) {
@@ -35,7 +70,16 @@ export class WasmPigment {
       keymap.set(pigment_data, id);
     }
 
-    id = idx | (id << 16);
+    return idx | (id<<16);
+  }
+
+  static setCache(pigment_data, idx, p) {
+    cache.set(this.getCacheId(pigment_data, idx), p);
+  }
+
+
+  static get(pigment_data, idx, k1, k2, colorScale) {
+    let id = this.getCacheId(pigment_data, idx);
 
     let ret = cache.get(id);
     if (ret) {
@@ -47,7 +91,7 @@ export class WasmPigment {
     let wasmModule = wasm.wasmReady();
 
     let wl = pigment_data.wavelengths;
-    let wmin = wl[0], wmax = wl[wl.length-1];
+    let wmin = wl[0], wmax = wl[wl.length - 1];
     console.log("wmin, wmax", wmin, wmax);
 
     let len = Math.max(pdata.K.length, pdata.S.length);
@@ -56,11 +100,18 @@ export class WasmPigment {
     let p = new WasmPigment(ptr, idx);
     cache.set(id, p);
 
+    p.lastParams = {
+      k1, k2, colorScale, idx, pigmentData: pigment_data
+    };
+
     let kptr = wasmModule.asm.getPigmentK(ptr);
     let sptr = wasmModule.asm.getPigmentS(ptr);
 
     let K = new Float32Array(wasmModule.HEAP8.buffer, kptr, len);
     let S = new Float32Array(wasmModule.HEAP8.buffer, sptr, len);
+
+    p.lastParams.K = Array.from(pdata.K);
+    p.lastParams.S = Array.from(pdata.S);
 
     K.set(pdata.K);
     S.set(pdata.S);
@@ -95,7 +146,28 @@ export class WasmPigment {
     return p;
   }
 
+  reloadWasm() {
+    debugger;
+
+    let pdata = this.lastParams.pigmentData.pigmentKS[this.lastParams.idx];
+    pdata.K = new Float32Array(this.lastParams.K);
+    pdata.S = new Float32Array(this.lastParams.S);
+
+    this.constructor.clearCache(this.lastParams.pigmentData, this.lastParams.idx);
+
+    let p = this.constructor.get(this.lastParams.pigmentData, this.lastParams.idx, this.lastParams.k1, this.lastParams.k2, this.lastParams.colorScale);
+    p.copyTo(this);
+
+    this.constructor.setCache(this.lastParams.pigmentData, this.lastParams.idx, this);
+  }
+
   toRGB(ps, ws, linear) {
+    if (this.tmp1[0].buffer.detached) {
+      debugger;
+      console.error("WASM memory error.");
+      this.reloadWasm();
+    }
+
     this.tmp1[0].set(ws);
 
     this.pstmp1[0][0] = ps[0].wasm.ptr;

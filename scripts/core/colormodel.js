@@ -4,7 +4,7 @@
 * it*/
 import {Camera} from '../webgl/webgl.js';
 
-export const WIDE_GAMUT = false;
+export const WIDE_GAMUT = true;
 
 export const USE_LUT_IMAGE = true;
 export const LINEAR_LUT = 0;
@@ -21,7 +21,8 @@ import * as pigment_data_physical from './pigment_data.js';
 import * as pigment_data_wide from './pigment_data_wide.js';
 import {getSearchOffs, ImageSlots} from './canvas.js';
 
-export const pigment_data = WIDE_GAMUT ? pigment_data_wide : pigment_data_physical;
+//export const pigment_data = WIDE_GAMUT ? pigment_data_wide : pigment_data_physical;
+export const pigment_data = pigment_data_physical;
 
 export const lightWaveLengths = [380, 750];
 export const lightFreqRange = [waveLengthToFreq(lightWaveLengths[0]), waveLengthToFreq(lightWaveLengths[1])];
@@ -96,7 +97,6 @@ export async function getLUTImage() {
 Math.tent = f => 1.0 - Math.abs(Math.fract(f) - 0.5)*2.0;
 let mat_temps = util.cachering.fromConstructor(Matrix4, 32);
 
-window.COLOR_SCALE = WIDE_GAMUT ? 1.0 : 1.0;
 window.REFL_K1 = 0.030;
 window.REFL_K2 = 0.650;
 
@@ -754,12 +754,12 @@ export class Pigment {
     }
   }
 
-  static toRGB(pigments, ws, steps = 64) {
+  static toRGB(pigments, ws, steps = 64, useWasm = true) {
     if (ws === undefined && pigments.length === 1) {
       ws = [1.0];
     }
 
-    if (pigments.length === 4 && pigments[0].wasm) {//pigments.checkWasm()) {
+    if (useWasm && pigments.length === 4 && pigments[0].wasm) {//pigments.checkWasm()) {
       return pigments[0].wasm.toRGB(pigments, ws);
     }
 
@@ -813,7 +813,14 @@ export class Pigment {
 
     ret[3] = 0.0;
 
-    ret.mulScalar(COLOR_SCALE*pigments.colorScale);
+    /* Note: you have to change this in WASM code too. */
+    if (0) {
+      for (let i = 0; i < 3; i++) {
+        ret[i] = Math.pow(Math.abs(ret[i]), pigments.colorScale);
+      }
+    } else {
+      ret.mulScalar(pigments.colorScale);
+    }
 
     if (!LINEAR_LUT) {
       ret.load(color.linear_to_rgb(ret[0], ret[1], ret[2]));
