@@ -190,9 +190,7 @@ window._fboUndoCache = fboUndoCache;
 
 export class WebGLPaint extends Canvas {
   constructor(dimen = 900) {
-    dimen *= UIBase.getDPI();
-    dimen = ~~dimen;
-
+    dimen = ~~dimen
     super(dimen);
 
     this.paintPigmentsDirect = false;
@@ -939,7 +937,7 @@ export class WebGLPaint extends Canvas {
     smat.scale(this.width, this.height);
 
     let tmat = new Matrix4();
-    tmat.translate(0.0, (editor.glSize[1]-this.height)/editor.glSize[1]/2.0,0, 0,0);
+    tmat.translate(0.0, (editor.glSize[1] - this.height)/this.height, 0.0);
 
     drawMatrix.multiply(smat);
     drawMatrix.multiply(tmat);

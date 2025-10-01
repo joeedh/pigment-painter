@@ -846,7 +846,9 @@ vec4 pigmentMix(vec4 a, vec4 b, float fac) {
 
 vec4 pigmentMix(vec4 a, vec4 b, float fac)
 {
-  return mix(a, b, fac);
+  a.rgb = ungamma(a.rgb);
+  b.rgb = ungamma(b.rgb);
+  return vec4(gamma(mix(a, b, fac).rgb), 1.0);
 } 
 
 #elif MIX_MODE == 2
@@ -1014,6 +1016,31 @@ vec4 pigmentMix(vec4 a, vec4 b, float fac)
   
   c += delta;
   
+  return vec4(c, 1.0);
+}
+#elif MIX_MODE == 6 || MIX_MODE == 7
+vec3 pow3(vec3 c, float degree) {
+  return pow(c, vec3(degree));
+}
+vec4 pigmentMix(vec4 a, vec4 b, float fac)
+{
+#if MIX_MODE == 6
+  const float degree = 2.0;
+#else
+  const float degree = 14.0;
+#endif
+
+  // first ungamma
+  a.rgb = ungamma(a.rgb);
+  b.rgb = ungamma(b.rgb);
+
+  a.rgb = pow3(a.rgb, 1.0 / degree);
+  b.rgb = pow3(b.rgb, 1.0 / degree);
+  
+  vec3 c = mix(a.rgb, b.rgb, fac);
+
+  c = pow3(c, degree);
+  c = gamma(c);
   return vec4(c, 1.0);
 }
 #endif

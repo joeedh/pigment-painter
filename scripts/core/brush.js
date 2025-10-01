@@ -33,6 +33,8 @@ export const BrushMixModes = {
   HSV     : 3,
   YUV     : 4,
   TEST    : 5,
+  SQUARED : 6,
+  FOURTH  : 7,
 };
 
 export const DynamicFlags = {

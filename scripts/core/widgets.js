@@ -1094,6 +1094,17 @@ export class ColorBlendPreview extends Container {
       case BrushMixModes.TEST:
         mixFunc = Pigment.mixRGB_Test;
         break;
+      case BrushMixModes.SQUARED:
+        mixFunc = Pigment.mixRGB_Squared;
+        break;
+      case BrushMixModes.FOURTH:
+        mixFunc = Pigment.mixRGB_Fourth;
+        break;
+    }
+
+    if (mixFunc === undefined) {
+      console.error('mixFunc was undefined', brush.mixMode);
+      return
     }
 
     const doRaw = this.showRaw.checked;

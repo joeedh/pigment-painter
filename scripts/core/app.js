@@ -375,9 +375,11 @@ export class AppState extends simple.AppState {
     let w = ~~(this.screen.size[0]*dpi);
     let h = ~~(this.screen.size[1]*dpi);
 
-    if (w === canvas.width && h === canvas.height) {
+    if (w === canvas.width && h === canvas.height && dpi === this._last_dpi) {
       return;
     }
+
+    this._last_dpi = dpi
 
     console.warn("updating canvas size", w, h);
 
@@ -386,6 +388,8 @@ export class AppState extends simple.AppState {
 
     canvas.style["width"] = (w/dpi) + "px";
     canvas.style["height"] = (h/dpi) + "px";
+
+    redraw_all(); 
   }
 
   resetDirtyRect() {

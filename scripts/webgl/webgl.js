@@ -328,7 +328,7 @@ export function init_webgl(canvas, params, webgl2) {
   params.powerPreference = params.powerPreference ?? "high-performance";
   params.premultipliedAlpha = params.premultipliedAlpha ?? false;
   params.antialias = params.antialias ?? false;
-  params.desynchronized = params.desynchronized ?? true;
+  params.desynchronized = params.desynchronized ?? false;
 
   let gl = canvas.getContext(webgl2 ? "webgl2" : "webgl", params);
 

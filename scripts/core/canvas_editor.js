@@ -134,6 +134,7 @@ export class CanvasEditor extends simple.Editor {
 
     this.drawGen = 0;
 
+    this.drawMatrix = new Matrix4()
     this.genDimen = 40;
     this.fillInLut = true;
     this.createReverseLut = true;
@@ -219,44 +220,33 @@ export class CanvasEditor extends simple.Editor {
   drawGl() {
     let dpi = UIBase.getDPI();
 
+    let gl = _appstate.gl;
+
     this.glSize.load(this.size).mulScalar(dpi).floor();
     this.glPos.load(this.pos).mulScalar(dpi).floor();
-
-    let tmat = new Matrix4();
-
     let r = this.header.getBoundingClientRect();
-    let offy = 0.0;
+
     if (r) {
-      this.glPos[1] += ~~(r.height*dpi);
-      this.glSize[1] -= ~~(r.height*dpi);
+      const h = ~~(r.height*dpi)
+      this.glPos[1] += h
+      this.glSize[1] -= h;
       //offy = -r.height*dpi/this.glSize[1]*2.0;
       //offy = offy ? 1.0 / offy : 0.0;
       //offy = 0.0;
       //offy /= this.glSize[1]*2.0;
     }
 
-    let w = this.ctx.canvas.width;
-    let h = this.ctx.canvas.height;
-
-    let gl = _appstate.gl;
-
     this.glPos[1] += this.glSize[1];
     this.glPos[1] = gl.canvas.height - this.glPos[1];
 
     let matrix = new Matrix4();
-    this.drawMatrix = matrix;
-
-    let aspect = this.glSize[1]/this.glSize[0];
-    const d = 1.0;
-    matrix.scale(1.0/this.glSize[0]*d, 1.0/this.glSize[1]*d, 1.0);
-
-    tmat.translate(0.0, offy*d, 0.0);
-    matrix.preMultiply(tmat);
+    matrix.scale(1.0/this.glSize[0], 1.0/this.glSize[1], 1.0);
+    this.drawMatrix.load(matrix);
 
     gl.disable(gl.DEPTH_TEST);
     gl.disable(gl.BLEND);
     gl.disable(gl.CULL_FACE);
-    //gl.enable(gl.SCISSOR_TEST);
+    gl.enable(gl.SCISSOR_TEST);
 
     gl.depthMask(false);
 
@@ -308,7 +298,7 @@ export class CanvasEditor extends simple.Editor {
         g.putImageData(this.ctx.canvas.image, 0, 0);
       } else {
         let m = new Vector2().load(max).sub(min);
-        console.log(m, _appstate.haveDirtyRect);
+        //console.log(m, _appstate.haveDirtyRect);
 
         g.putImageData(this.ctx.canvas.image, 0, 0, min[0], min[1], max[0] - min[0], max[1] - min[1]);
       }
@@ -608,16 +598,19 @@ export class CanvasEditor extends simple.Editor {
     let ret = new Vector2();
 
     let dpi = UIBase.getDPI();
-    let r = this.header.getBoundingClientRect();
-    //let r = this.canvas.getBoundingClientRect();
-    //ret[0] = (x - r.x)*dpi;
-    //ret[1] = (y - r.y)*dpi;
+    
+    x *= dpi
+    y *= dpi
 
-    let gly = _appstate.gl.canvas.height - this.glPos[1];
-    gly -= this.glSize[1];
+    const screenHeight = _appstate.gl.canvas.height
+    const glx = this.glPos[0]
+    const gly = screenHeight - this.glPos[1] - this.glSize[1];
 
-    ret[0] = x*dpi - this.glPos[0];
-    ret[1] = y*dpi - gly + r.height;
+    x -= glx;
+    y -= gly;
+    
+    ret[0] = x;
+    ret[1] = y;
 
     return ret;
   }

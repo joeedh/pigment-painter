@@ -15,7 +15,7 @@ export const TRILINEAR_LUT = false;
 import {simple, util, nstructjs, math, UIBase, Vector3, Vector4, Matrix4, platform} from '../path.ux/scripts/pathux.js';
 import * as color from './color.js';
 import {freqToWaveLength, getCie65, waveLengthToFreq} from './cie65.js';
-import {linear_to_rgb, sRGBMatrix} from './color.js';
+import {linear_to_rgb, rgb_to_linear, sRGBMatrix, srgb_gamma_to_linear, srgb_linear_to_gamma} from './color.js';
 
 import * as pigment_data_physical from './pigment_data.js';
 import * as pigment_data_wide from './pigment_data_wide.js';
@@ -527,6 +527,55 @@ export class Pigment {
     }
 
     return c1;
+  }
+
+  static mixRGB_Squared(pigments, colors, ws, dither = false, doBilinear=undefined, doRaw=undefined, degree=2) {
+    let ret = mixRGBRets.next();
+    let tmp = mixRGBRets.next();
+    ret[0] = ret[1] = ret[2] = 0.0;
+
+    let alpha = 0.0;
+    let factor = degree, invFactor = 1.0 / degree;
+    console.log('DEGREE', degree)
+
+    // note: c is in linear color space
+    function transform(c) {
+      return c**invFactor;
+    }
+    function untransform(c) {
+      return c**factor
+    }
+
+    for (let i = 0; i < colors.length; i++) {
+      let c = colors[i];
+      tmp.load(c);
+      tmp.load(rgb_to_linear(tmp[0], tmp[1], tmp[2]))
+      tmp[0] = transform(tmp[0]);
+      tmp[1] = transform(tmp[1]);
+      tmp[2] = transform(tmp[2]);
+      
+      ret.addFac(tmp, ws[i]);
+      alpha += c[3]*ws[i];
+    }
+
+    tmp.load(linear_to_rgb(untransform(ret[0]), untransform(ret[1]), untransform(ret[2])));
+    ret[0] = tmp[0]
+    ret[1] = tmp[1]
+    ret[2] = tmp[2]
+    ret[3] = alpha;
+    
+    if (dither) {
+      ret[0] += (Math.random() - 0.5)/255.0;
+      ret[1] += (Math.random() - 0.5)/255.0;
+      ret[2] += (Math.random() - 0.5)/255.0;
+      ret[3] += (Math.random() - 0.5)/255.0;
+    }
+
+    return ret;
+  }
+
+  static mixRGB_Fourth(pigments, colors, ws, dither=false, bilinear=undefined, raw=undefined) {
+    return Pigment.mixRGB_Squared(pigments, colors, ws, dither, bilinear, raw, 4);
   }
 
   static mixRGB_Simple(pigments, colors, ws, dither = false) {
