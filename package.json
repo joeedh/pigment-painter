@@ -1,4 +1,7 @@
 {
   "type": "module",
+  "scripts": {
+    "serv" : "node serv.mjs"
+  },
   "dependencies": {}
 }
